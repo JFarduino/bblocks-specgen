@@ -435,3 +435,164 @@ class ClassIdPrefixTest(_TmpDirCase):
         """)
         with self.assertRaises(ValueError):
             load_standards(path)
+
+
+class OgcLayoutTest(_TmpDirCase):
+    """Statement kinds, placement markers, explicit abstract tests, preface, 'ogc' layout."""
+    BASE = 'http://example.com/src/'
+
+    def _generate(self, files, std_extra, blocks):
+        for rel, text in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(textwrap.dedent(text), encoding='utf-8')
+        register = {'baseURL': self.BASE, 'bblocks': [
+            {'itemIdentifier': i, 'name': i.split('.')[-1].title(), 'sourceFiles': f'{self.BASE}{i}/', **extra}
+            for i, extra in blocks.items()]}
+        std = _std('s', prefix='test.s.')
+        std.update({
+            'base-uri': 'https://example.com/spec/1.0',
+            'req-uri-template': '{base-uri}/req/{id}',
+            'rec-uri-template': '{base-uri}/rec/{id}',
+            'per-uri-template': '{base-uri}/per/{id}',
+            'conf-uri-template': '{base-uri}/conf/{id}',
+            'ats-uri-template': '{base-uri}/conf/{id}',
+        })
+        std.update(std_extra)
+        out = generate(register, [std], source_dir=self.root, build_dir=self.root / 'out')
+        return (out.parent / 's' / 'index.html').read_text()
+
+    FILES = {
+        'test.s.core/requirements.yaml': """
+            class-id: core
+            title: Requirements Class 'Core'
+            conformance-class: {title: Core}
+            requirements:
+              - {id: core/a, statement: The server SHALL do A.}
+              - id: core/b
+                parts: [First part SHALL hold., Second part SHALL hold.]
+              - {id: core/a, type: permission, statement: The server MAY do A differently.}
+              - {id: core/r, type: recommendation, statement: The server SHOULD do R.}
+            abstract-tests:
+              - id: core/test-a
+                requirement: core/a
+                purpose: Check A.
+                method: "1. Do A."
+              - id: core/test-b
+                requirement: {ref: core/b, text: /req/core/bee}
+                purpose: Check B.
+              - id: core/test-x
+                requirement: /req/core/missing
+                purpose: Dangling.
+            """,
+        'test.s.core/description.md': """
+            # Overview
+
+            <!-- requirements-class -->
+
+            Intro.
+
+            # Doing A
+
+            <!-- requirement: core/a -->
+
+            <!-- permission: core/a -->
+
+            ## Details
+
+            <!-- requirement: core/b -->
+            """,
+        'test.s.ats/description.md': """
+            # Introduction
+
+            <!-- abstract-test: core/general -->
+
+            # Conformance Class Core
+
+            <!-- conformance-class: test.s.core -->
+
+            <!-- abstract-test: core/test-b -->
+            """,
+        'test.s.ats/abstract-tests.yaml': """
+            abstract-tests:
+              - {id: core/general, uri: "https://example.com/spec/1.0/req/core/general", purpose: General.}
+            """,
+        'test.s.sec/description.md': 'Be careful.\n',
+    }
+    BLOCKS = {'test.s.core': {'itemClass': 'requirements-class'}, 'test.s.ats': {'itemClass': 'clause'},
+              'test.s.sec': {'itemClass': 'clause'}}
+
+    def _std(self, layout):
+        return {
+            'layout': layout,
+            'abstract': 'The *abstract*.',
+            'keywords': ['k1', 'k2'],
+            'preface': [{'auto': 'abstract'}, {'auto': 'keywords'}, {'bblock': 'test.s.sec'}],
+            'clauses': [{'bblock': 'test.s.core', 'title': 'Requirements Class “Core”'},
+                        {'auto': 'annex-a', 'bblock': 'test.s.ats'}],
+        }
+
+    def test_ogc_layout(self):
+        html = self._generate(self.FILES, self._std('ogc'), self.BLOCKS)
+        # preface with roman numerals, abstract rendered as Markdown and not on the cover
+        self.assertIn('<h2>I. Abstract</h2>', html)
+        self.assertIn('The <em>abstract</em>.', html)
+        self.assertIn('<h2>II. Keywords</h2>', html)
+        self.assertIn('<h2>III. Sec</h2>', html)
+        self.assertNotIn('doc-abstract', html)
+        # clause title override and numbered subclauses
+        self.assertIn('<h2>1. Requirements Class “Core”</h2>', html)
+        self.assertIn('<h3 id="sec-1.1">1.1. Overview</h3>', html)
+        self.assertIn('<h4 id="sec-1.2.1">1.2.1. Details</h4>', html)
+        # statements: document-wide labels per kind, kind-specific URIs and anchors
+        self.assertIn('Requirements class 1: Requirements Class &#39;Core&#39;', html.replace("'", '&#39;'))
+        self.assertIn('<th colspan="2">Requirement 1</th>', html)
+        self.assertIn('<th colspan="2">Permission 1</th>', html)
+        self.assertIn('<code>/per/core/a</code>', html)
+        self.assertIn('id="per-core-a"', html)
+        self.assertIn('<th>B</th><td><p>Second part SHALL hold.</p>', html)
+        # the class table is placed by its marker, after the Overview heading
+        self.assertLess(html.index('sec-1.1'), html.index('Requirements class 1:'))
+        # the unplaced recommendation goes under an auto "Requirements" subclause
+        self.assertIn('<h3 id="sec-1.3">1.3. Requirements</h3>', html)
+        self.assertIn('<th colspan="2">Recommendation 1</th>', html)
+        # explicit Annex A: annex test first, then the class table, then placed and unplaced tests
+        self.assertIn('<h2>Annex A (normative) Abstract Test Suite</h2>', html)
+        self.assertIn('<code>/req/core/general</code>', html)
+        self.assertIn('Conformance class A.1: Core', html)
+        self.assertIn('<th colspan="2">Abstract test A.1</th></tr></thead>\n      <tbody>\n        '
+                      '<tr><th>Identifier</th><td><code>/req/core/general</code>', html)
+        self.assertLess(html.index('Abstract test A.1</th>'), html.index('Conformance class A.1'))
+        self.assertIn('Requirement 1: <code>/req/core/a</code>', html.replace('<a href="#req-core-a">', '').replace('</a>', ''))
+        self.assertIn('<a href="#req-core-b">/req/core/bee</a>', html)
+        self.assertIn('/req/core/missing', html)
+        self.assertNotIn('<!--', html.split('<main>')[1])
+        # the layout's styles are a file of their own
+        self.assertIn('<link rel="stylesheet" href="ogc-layout.css">', html)
+        self.assertTrue((self.root / 'out' / 's' / 'ogc-layout.css').is_file())
+
+    def test_classic_output_unaffected_by_ogc_layout(self):
+        """Documents in the classic layout must keep their exact output."""
+        html = self._generate(self.FILES, self._std('classic'), self.BLOCKS)
+        out = self.root / 'out' / 's'
+        self.assertTrue(html.startswith('<!DOCTYPE html>\n<html lang="en">\n'))
+        self.assertNotIn('ogc-layout.css', html)
+        self.assertFalse((out / 'ogc-layout.css').exists())
+        self.assertNotIn('layout-ogc', (out / 'ogc-standard.css').read_text())
+
+    def test_new_sources_in_classic_layout(self):
+        html = self._generate(self.FILES, self._std('classic'), self.BLOCKS)
+        self.assertIn('Requirement 1/1', html)
+        self.assertIn('Permission 1/1', html)
+        self.assertIn('https://example.com/spec/1.0/per/core/a', html)
+        self.assertIn('<ol class="req-parts" type="A">', html)
+        self.assertIn('class="req-class-box"', html)
+        self.assertIn('Abstract test A.1', html)
+
+    def test_unknown_layout_and_statement_type(self):
+        with self.assertRaises(ValueError):
+            self._generate(self.FILES, {**self._std('ogc'), 'layout': 'fancy'}, self.BLOCKS)
+        files = dict(self.FILES)
+        files['test.s.core/requirements.yaml'] = 'requirements:\n  - {id: x, type: wish, statement: y}\n'
+        with self.assertRaises(ValueError):
+            self._generate(files, self._std('ogc'), self.BLOCKS)

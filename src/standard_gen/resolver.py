@@ -52,24 +52,43 @@ class Resolver:
     def _status_token(self) -> str:
         return 'draft/' if self._meta.status.lower() == 'draft' else ''
 
-    def req_uri(self, req_id: str) -> str:
+    def _expand(self, template: str, ident: str) -> str:
         return (
-            self._meta.req_uri_template
+            template
             .replace('{base-uri}', self._meta.base_uri)
             .replace('{status}', self._status_token())
-            .replace('{id}', req_id)
+            .replace('{id}', ident)
         )
 
+    def req_uri(self, req_id: str) -> str:
+        return self._expand(self._meta.req_uri_template, req_id)
+
+    def statement_uri(self, kind: str, stmt_id: str) -> str:
+        """URI of a requirement, recommendation or permission."""
+        template = {
+            'recommendation': self._meta.rec_uri_template,
+            'permission': self._meta.per_uri_template,
+        }.get(kind, self._meta.req_uri_template)
+        return self._expand(template, stmt_id)
+
     def conf_uri(self, class_id: str) -> str:
-        return (
-            self._meta.conf_uri_template
-            .replace('{base-uri}', self._meta.base_uri)
-            .replace('{status}', self._status_token())
-            .replace('{id}', class_id)
-        )
+        return self._expand(self._meta.conf_uri_template, class_id)
 
     def ats_uri(self, req_uri: str) -> str:
         return req_uri.replace('/req/', '/ats/')
+
+    def abstract_test_uri(self, test_id: str) -> str:
+        return self._expand(self._meta.ats_uri_template, test_id)
+
+    def display_id(self, uri: str) -> str:
+        """
+        How a statement or test identifier is shown: relative to the
+        standard's base URI in the 'ogc' layout (e.g. /req/core/x), else as is.
+        """
+        base = self._meta.base_uri.rstrip('/')
+        if self._meta.ogc_layout and uri.startswith(base + '/'):
+            return uri[len(base):]
+        return uri
 
     # ------------------------------------------------------------------
     # Local URL → filesystem path

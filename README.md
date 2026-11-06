@@ -27,12 +27,17 @@ with requirements, conformance class table, and an abstract test suite annex.
 - [x] Multiple standards per repo — each `standards.yaml` entry (required `id`) is generated to `<build-dir>/<id>/`, with an index page listing them
 - [x] `import-examples: N` on a requirement — pulls up to N examples from the external bblock's `json-full`, appended after any locally defined examples; each source bblock is fetched at most once per requirements class
 - [x] `bblocks://` URIs in `depends-on` — resolved to bblock name and viewer URL automatically from the imported register, no hand-typed title needed
+- [x] Recommendations and permissions (`type:` in `requirements.yaml`), lettered parts (A, B, C…) and prerequisites, with their own URI templates
+- [x] Placement markers in `description.md` for the requirements class table and individual statements
+- [x] Explicit abstract tests and conformance classes (`abstract-tests:`), with an Annex A laid out by its own block
+- [x] Preface clauses (I, II…), clause title overrides, unnumbered clauses, custom boilerplate notices
+- [x] `layout: ogc` — ModSpec tables, document-wide statement numbering, numbered subclauses, OGC-style cover
 
 ## Pending
 
 - [ ] Requirements property table — resolve `$ref` chains, handle `allOf`/`oneOf`, show enum values and constraints
 - [ ] `requirements.json` — machine-readable requirements manifest output
-- [ ] Subheading hierarchical numbering (e.g. 7.1, 7.1.1) in the table of contents
+- [ ] Subheading hierarchical numbering (e.g. 7.1, 7.1.1) in the `classic` layout (done in `layout: ogc`)
 - [ ] Unit tests (`test_resolver.py`, `test_assembler.py`)
 - [ ] PDF output via WeasyPrint
 

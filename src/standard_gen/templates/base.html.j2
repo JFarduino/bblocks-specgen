@@ -1,14 +1,63 @@
 <!DOCTYPE html>
+{%- import 'macros.html.j2' as m %}
+{%- set ogc = get_layout() == 'ogc' %}
+{%- set md = doc.metadata %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ doc.metadata.doc_number }} — {{ doc.metadata.title }}</title>
   <link rel="stylesheet" href="ogc-standard.css">
+  {%- if ogc %}
+  <link rel="stylesheet" href="ogc-layout.css">
+  {%- endif %}
 </head>
-<body data-status="{{ doc.metadata.status }}">
+<body data-status="{{ doc.metadata.status }}"{% if ogc %} class="layout-ogc"{% endif %}>
+{%- set bp = doc.metadata.boilerplate %}
+{%- macro notices() -%}
+  <div class="boilerplate notices">
+    {% for notice in bp.notices %}
+    <div class="notice">
+      <h2 class="notice-title">{{ notice.title }}</h2>
+      {{ render_markdown(notice.text or '') | safe }}
+    </div>
+    {% endfor %}
+  </div>
+{%- endmacro %}
 
 {# Cover #}
+{%- if ogc %}
+<header id="cover" class="ogc-cover">
+  <p class="doc-stage">{{ md.status }}</p>
+  <p class="doc-type">OGC {{ md.doc_type }}</p>
+  <h1>{{ md.title }}</h1>
+  {% if md.editors %}
+  <p class="cover-editors">{% for ed in md.editors %}{{ ed.name }}{% if not loop.last %}, {% endif %}{% endfor %} <span class="role">Editor{% if md.editors | length > 1 %}s{% endif %}</span></p>
+  {% endif %}
+  <table class="cover-meta">
+    {% if md.submission_date %}<tr><th>Submission Date</th><td>{{ md.submission_date }}</td></tr>{% endif %}
+    {% if md.approval_date %}<tr><th>Approval Date</th><td>{{ md.approval_date }}</td></tr>{% endif %}
+    {% if md.pub_date %}<tr><th>Publication Date</th><td>{{ md.pub_date }}</td></tr>{% endif %}
+    {% if md.external_id %}<tr><th>External identifier of this OGC® document</th><td><a href="{{ md.external_id }}">{{ md.external_id }}</a></td></tr>{% endif %}
+    {% if md.doc_number %}<tr><th>Internal identifier of this OGC® document</th><td>{{ md.doc_number }}</td></tr>{% endif %}
+    {% if md.version %}<tr><th>Version</th><td>{{ md.version }}</td></tr>{% endif %}
+    {% if md.doc_subtype %}<tr><th>Document subtype</th><td>{{ md.doc_subtype }}</td></tr>{% endif %}
+  </table>
+  {% if md.wg %}
+  <p><strong>Working Group:</strong> {{ md.wg }}</p>
+  {% endif %}
+  {% if md.keywords and 'keywords' not in md.preface_autos %}
+  <p><strong>Keywords:</strong> {{ md.keywords | join(', ') }}</p>
+  {% endif %}
+  {% if md.abstract and 'abstract' not in md.preface_autos %}
+  <div class="doc-abstract">
+    <strong>Abstract</strong>
+    {{ render_markdown(md.abstract) | safe }}
+  </div>
+  {% endif %}
+  {% if bp.get('notices') %}{{ notices() }}{% endif %}
+</header>
+{%- else %}
 <header id="cover">
   <h1>{{ doc.metadata.title }}</h1>
   <div class="doc-meta">
@@ -33,15 +82,20 @@
   {% if doc.metadata.wg %}
   <p><strong>Working Group:</strong> {{ doc.metadata.wg }}</p>
   {% endif %}
-  {% if doc.metadata.keywords %}
+  {% if doc.metadata.keywords and 'keywords' not in md.preface_autos %}
   <p><strong>Keywords:</strong> {{ doc.metadata.keywords | join(', ') }}</p>
   {% endif %}
+  {%- if 'abstract' not in md.preface_autos %}
   <div class="doc-abstract">
     <strong>Abstract</strong>
     <p>{{ doc.metadata.abstract }}</p>
   </div>
+  {%- endif %}
 
-  {% set bp = doc.metadata.boilerplate %}
+  {# Boilerplate #}
+  {%- if bp.get('notices') %}
+  {{ notices() }}
+  {%- else %}
   <div class="boilerplate">
     <p><strong>Copyright notice</strong><br>
     Copyright &copy; {{ bp.get('copyright-year', '') }} Open Geospatial Consortium.<br>
@@ -69,19 +123,21 @@
     each person to whom the Intellectual Property is furnished agrees to the terms of this Agreement.</p>
     {% endif %}
   </div>
+  {%- endif %}
 </header>
+{%- endif %}
 
 {# Table of Contents #}
 <nav id="toc">
-  <h2>Table of Contents</h2>
+  <h2>{% if ogc %}Contents{% else %}Table of Contents{% endif %}</h2>
   <ul>
     {% for section in doc.sections %}
     <li>
-      <a href="#{{ section.anchor }}">{{ section.number }}. {{ section.title }}</a>
+      <a href="#{{ section.anchor }}">{{ section_title(section, true) }}</a>
       {% if section.subsections %}
       <ul>
         {% for sub in section.subsections %}
-        <li><a href="#{{ sub.anchor }}">{{ sub.title }}</a></li>
+        <li{% if ogc %} class="toc-l{{ sub.level }}"{% endif %}><a href="#{{ sub.anchor }}">{% if sub.number %}{{ sub.number }}. {% endif %}{{ sub.title }}</a></li>
         {% endfor %}
       </ul>
       {% endif %}
@@ -94,18 +150,22 @@
 {% for section in doc.sections %}
   {% set content = section.content %}
   {% set content_type = content.__class__.__name__ %}
+  {%- set ctx = section_ctx(section) %}
 
   {# ---- Prose clause ---- #}
   {% if content_type == 'ProseClause' %}
-  <section id="{{ section.anchor }}" {% if not content.normative %}class="informative"{% endif %}>
-    <h2>{{ section.number }}. {{ section.title }}</h2>
-    {{ render_markdown(content.description_md, content.bblock_id) | safe }}
+  <section id="{{ section.anchor }}" {% if not content.normative %}class="informative"{% elif section.kind == 'preface' %}class="preface"{% endif %}>
+    <h2>{{ section_title(section) }}</h2>
+    {{ render_markdown(content.description_md, content.bblock_id, ctx) | safe }}
   </section>
 
   {# ---- Terms clause ---- #}
   {% elif content_type == 'TermsClause' %}
   <section id="{{ section.anchor }}">
-    <h2>{{ section.number }}. {{ section.title }}</h2>
+    <h2>{{ section_title(section) }}</h2>
+    {%- if ogc %}
+    {{ render_markdown(terms_markdown(content), content.bblock_id, ctx) | safe }}
+    {%- else %}
     {% if content.preamble_md %}{{ render_markdown(content.preamble_md, content.bblock_id) | safe }}{% endif %}
     {% for term in content.terms %}
     <div class="term-entry" id="term-{{ term.term | lower | replace(' ', '-') }}">
@@ -129,14 +189,18 @@
       </table>
     </div>
     {% endif %}
+    {%- endif %}
   </section>
 
   {# ---- References clause ---- #}
   {% elif content_type == 'ReferencesClause' %}
-  <section id="{{ section.anchor }}">
-    <h2>{{ section.number }}. {{ section.title }}</h2>
-    {% if content.preamble_md %}{{ render_markdown(content.preamble_md, content.bblock_id) | safe }}{% endif %}
-    {% for ref in content.normative | sort(attribute='doc_id') %}
+  <section id="{{ section.anchor }}"{% if not content.normative and section.kind == 'annex' %} class="informative"{% endif %}>
+    <h2>{{ section_title(section) }}</h2>
+    {% if content.preamble_md %}{{ render_markdown(content.preamble_md, content.bblock_id, ctx) | safe }}{% endif %}
+    {% for ref in (content.normative | sort(attribute='doc_id') if content.sort else content.normative) %}
+    {%- if ref.citation %}
+    <div class="reference-entry citation">{{ render_markdown(ref.citation, content.bblock_id) | safe }}</div>
+    {%- else %}
     <div class="reference-entry">
       <span class="ref-id">{% if ref.doc_id %}{{ ref.doc_id }}{% endif %}</span>
       <span class="ref-body">
@@ -144,10 +208,16 @@
         {% if ref.date %} ({{ ref.date }}){% endif %}
       </span>
     </div>
+    {%- endif %}
     {% endfor %}
     {% if content.informative %}
+    {%- if content.normative or not ogc %}
     <h3>Bibliography</h3>
+    {%- endif %}
     {% for ref in content.informative %}
+    {%- if ref.citation %}
+    <div class="reference-entry citation">{{ render_markdown(ref.citation, content.bblock_id) | safe }}</div>
+    {%- else %}
     <div class="reference-entry">
       <span class="ref-id">{% if ref.doc_id %}{{ ref.doc_id }}{% endif %}</span>
       <span class="ref-body">
@@ -155,6 +225,7 @@
         {% if ref.date %} ({{ ref.date }}){% endif %}
       </span>
     </div>
+    {%- endif %}
     {% endfor %}
     {% endif %}
   </section>
@@ -162,7 +233,7 @@
   {# ---- Conformance clause ---- #}
   {% elif content_type == 'ConformanceClause' %}
   <section id="{{ section.anchor }}">
-    <h2>{{ section.number }}. {{ section.title }}</h2>
+    <h2>{{ section_title(section) }}</h2>
     <p>
       This standard defines the following requirements classes and their associated
       conformance classes. Conformance with this standard shall be checked using the
@@ -187,136 +258,30 @@
   {# ---- Requirements class ---- #}
   {% elif content_type == 'ReqClass' %}
   <section id="{{ section.anchor }}" class="requirements-class">
-    <h2>{{ section.number }}. {{ section.title }}</h2>
+    <h2>{{ section_title(section) }}</h2>
+    {#- Rendered first: it places the class table and the statements that have a marker in it #}
+    {%- set intro = render_markdown(content.description_md | split_intro, content.bblock_id, ctx) %}
 
-    {# Conformance class declaration box #}
-    <div class="req-class-box" id="bb-{{ content.bblock_id | slugify }}">
-      <h4>Requirements Class</h4>
-      <table>
-        <tr><th>Requirements class</th><td><a href="{{ content.req_class_uri }}">{{ content.req_class_uri }}</a></td></tr>
-        <tr><th>Conformance class</th><td><a href="{{ content.conf_class_uri }}">{{ content.conf_class_uri }}</a></td></tr>
-        <tr><th>Standardization target</th><td>{{ content.standardization_target }}</td></tr>
-        {% if content.depends_on %}
-        <tr>
-          <th>Dependencies</th>
-          <td>
-            {% for dep in content.depends_on %}
-            <a href="{{ dep.uri }}">{{ dep.title or dep.uri }}</a>{% if not loop.last %}<br>{% endif %}
-            {% endfor %}
-          </td>
-        </tr>
-        {% endif %}
-      </table>
-    </div>
+    {# Requirements class table, unless placed by a <!-- requirements-class --> marker #}
+    {%- if not has_placement(content.description_md, 'requirements-class') %}
+    {{ m.req_class_box(content, ctx) }}
+    {%- endif %}
 
     {# Intro prose (before <!-- requirements --> marker) #}
-    {{ render_markdown(content.description_md | split_intro, content.bblock_id) | safe }}
+    {{ intro | safe }}
 
     {# Requirements heading — resets visual scope after any intro subheadings #}
-    {% if content.requirements %}
-    <h3 id="req-{{ section.anchor }}-requirements">Requirements</h3>
+    {% if content.unplaced %}
+    {{ ctx.heading(3, 'Requirements', 'req-' ~ section.anchor ~ '-requirements') | safe }}
     {% endif %}
 
-    {# Requirement boxes #}
-    {% for req in content.requirements %}
-    <div class="requirement req-level-{{ req.level | replace(' ', '-') }}" id="req-{{ req.id_slug }}">
-      <div class="req-header">
-        <span class="req-number">Requirement {{ section.number }}/{{ loop.index }}</span>
-        <span class="req-level">{{ req.level }}</span>
-        <span class="req-uri"><a href="{{ req.uri }}">{{ req.uri }}</a></span>
-      </div>
-      {% if req.condition %}
-      <div class="req-condition">{{ req.condition }}</div>
-      {% endif %}
-      <div class="req-statement">{{ render_markdown(req.statement, content.bblock_id) | safe }}</div>
-      {% if req.applies_to %}
-      <div class="req-applies-to">
-        Applies to:
-        {% set viewer_url = get_viewer_url(req.applies_to.bblock) %}
-        {% if viewer_url %}
-        <a href="{{ viewer_url }}">{{ req.applies_to.bblock }}</a>
-        {% else %}
-        {{ req.applies_to.bblock }}
-        {% endif %}
-        {% if req.applies_to.json_path %}
-        <code>{{ req.applies_to.json_path }}</code>
-        {% endif %}
-      </div>
-      {% set prop_table = get_property_table(req.applies_to) %}
-      {% if prop_table %}
-      <table class="property-table">
-        <thead><tr><th>Property</th><th>Type / Format</th><th>Required</th><th>Description</th></tr></thead>
-        <tbody>
-          {% for p in prop_table.properties %}
-          <tr>
-            <td><code>{{ p.name }}</code></td>
-            <td>
-              {{ p.type }}{% if p.format %} / <code>{{ p.format }}</code>{% endif %}
-              {% if p.ref %}<br><a href="{{ p.ref }}" class="schema-ref">schema</a>{% endif %}
-            </td>
-            <td>{{ 'Yes' if p.required else 'No' }}</td>
-            <td>{{ p.description }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      {% set onto = get_ontology_table(req.applies_to) %}
-      {% if onto %}
-      {% macro term_link(t) %}<a href="{{ t.uri }}"><code>{{ t.curie }}</code></a>{% endmacro %}
-      {% if onto.classes %}
-      <table class="property-table ontology-table">
-        <thead><tr><th>Class</th><th>Subclass of</th><th>Definition</th></tr></thead>
-        <tbody>
-          {% for c in onto.classes %}
-          <tr>
-            <td>{{ term_link(c.term) }}<br>{{ c.term.label if c.term.label != c.term.curie }}</td>
-            <td>{% for t in c.parents %}{{ term_link(t) }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
-            <td>{{ c.definition }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-      {% if onto.properties %}
-      <table class="property-table ontology-table">
-        <thead><tr><th>Property</th><th>Domain</th><th>Range</th><th>Definition</th></tr></thead>
-        <tbody>
-          {% for p in onto.properties %}
-          <tr>
-            <td>{{ term_link(p.term) }}<br>{{ p.term.label if p.term.label != p.term.curie }}</td>
-            <td>{% for t in p.domain %}{{ term_link(t) }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
-            <td>{% for t in p.range %}{{ term_link(t) }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
-            <td>{{ p.definition }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
-      {% endif %}
-      {% endif %}
-      {% endif %}
-      {% if req.note %}
-      <div class="editor-note">{{ req.note }}</div>
-      {% endif %}
-      {% if req.examples %}
-      <div class="req-examples">
-        {% for example in req.examples %}
-        <div class="example">
-          <h5 class="example-title">{{ example.title or 'Example' }}</h5>
-          {% if example.content %}{{ render_markdown(example.content, example.source_bblock_id or content.bblock_id) | safe }}{% endif %}
-          {% for snippet in example.snippets %}
-          <pre><code class="language-{{ snippet.language }}">{{ snippet.code | e }}</code></pre>
-          {% endfor %}
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </div>
+    {# Statements not placed by a marker #}
+    {% for req in content.unplaced %}
+    {{ m.statement(req, content, ctx) }}
     {% endfor %}
 
     {# Outro prose (after <!-- requirements --> marker) #}
-    {{ render_markdown(content.description_md | split_outro, content.bblock_id) | safe }}
+    {{ render_markdown(content.description_md | split_outro, content.bblock_id, ctx) | safe }}
 
     {# Examples #}
     {% if content.examples %}
@@ -335,10 +300,26 @@
     {% endif %}
   </section>
 
+  {# ---- Annex A, explicit abstract tests ---- #}
+  {% elif content_type == 'AnnexA' and content.explicit %}
+  <section id="{{ section.anchor }}" class="{% if ogc %}annex-section{% else %}annex{% endif %} normative">
+    <h2>{{ section_title(section) }}</h2>
+    {{ render_markdown(content.description_md, content.bblock_id, ctx) | safe }}
+    {% for rc in content.unplaced_classes %}
+    {{ m.conf_class(rc, ctx) }}
+    {% for t in content.unplaced_tests.get(rc.bblock_id, []) %}
+    {{ m.abstract_test(t, ctx) }}
+    {% endfor %}
+    {% endfor %}
+    {% for t in content.unplaced_tests.get(None, []) %}
+    {{ m.abstract_test(t, ctx) }}
+    {% endfor %}
+  </section>
+
   {# ---- Annex A ---- #}
   {% elif content_type == 'AnnexA' %}
-  <section id="{{ section.anchor }}" class="annex normative">
-    <h2>{{ section.number }} Abstract Test Suite (Normative)</h2>
+  <section id="{{ section.anchor }}" class="{% if ogc %}annex-section{% else %}annex{% endif %} normative">
+    <h2>{{ section_title(section) }}</h2>
     {% for entry in content.entries %}
     <div class="ats-entry" id="ats-{{ entry.req_id_slug }}">
       <div class="ats-header">{{ entry.uri }}</div>

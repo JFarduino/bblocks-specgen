@@ -253,6 +253,126 @@ group leaking into URIs: with `prefix: my.std.part1` and
 `class-id-prefix: my.std.part1.requirements.`, the block `my.std.part1.requirements.core` gets
 the class id `core`. `class-id-prefix` must start with `prefix`.
 
+### Recommendations, permissions and lettered parts
+
+A `requirements.yaml` entry can also be a recommendation or a permission (ModSpec), and can be
+split into lettered parts (A, B, C…), as in published OGC documents:
+
+```yaml
+requirements:
+  - id: core/deploy-body              # → {req-uri-template}: …/req/core/deploy-body
+    parts:
+      - The body SHALL contain …
+      - The `Content-Type` header SHALL …
+  - id: core/deploy-body              # same id is fine for a different type
+    type: permission                  # requirement (default) | recommendation | permission
+    statement: A server MAY …         # → {per-uri-template}: …/per/core/deploy-body
+  - id: cwl/multipart
+    type: permission
+    prerequisites: [RFC 2387 (The MIME Multipart/Related Content-type)]
+    statement: Introduction shown as "Statement" when there are parts.
+    parts: [A server MAY …, Parts SHOULD …]
+```
+
+`level` defaults to SHALL, SHOULD and MAY respectively. URIs come from `rec-uri-template` and
+`per-uri-template` (defaults `{base-uri}/{status}rec/{id}` and `{base-uri}/{status}per/{id}`).
+`applies-to: {bblock: …, table: false}` links the block without adding its property table (e.g.
+when the statement already quotes the schema). Other class-level keys: `title` (title of the
+requirements class table, default: the block name), `obligation` (default `requirement`).
+
+### Placing the class table and statements in the text
+
+By default the class table comes first and all statements follow the intro text, under a
+"Requirements" heading. Markers on their own line in `description.md` place them instead:
+
+```markdown
+## Overview
+<!-- requirements-class -->
+…
+## Deploy
+<!-- requirement: core/deploy-body -->
+<!-- permission: core/deploy-body -->
+<!-- recommendation: core/deploy-body-ogcapppkg -->
+```
+
+Statements without a marker still go under the "Requirements" heading (which is omitted when
+every statement is placed). Statements are numbered in display order.
+
+### Explicit abstract tests
+
+Instead of one generated Annex A entry per requirement, a class can list its abstract tests:
+
+```yaml
+conformance-class:
+  title: Deploy, Replace, Undeploy   # default: the block name
+  subject: …                         # optional
+abstract-tests:
+  - id: dru/deploy-post-op           # → {ats-uri-template} (default {base-uri}/{status}conf/{id})
+    requirement: deploy-replace-undeploy/deploy-post-op   # id, identifier (/req/…) or URI; or a list
+    purpose: Validate that …
+    method: |
+      1. Issue an HTTP POST request …
+    tested-by: [deploy-success]      # optional, from the block's tests.yaml
+  - id: dru/other
+    requirement: {ref: deploy-replace-undeploy/x, text: /req/shown/as/written}
+```
+
+A requirement reference that resolves is linked (and shown as "Requirement N: /req/…" in the
+`ogc` layout unless `text` is given); one that does not is shown as written, with a warning.
+To lay out the annex, give it a block: `{auto: annex-a, bblock: my.std.annexes.ats}`. Its
+`description.md` is the annex text, with `<!-- conformance-class: <class block id> -->` and
+`<!-- abstract-test: <id> -->` markers; an optional `abstract-tests.yaml` (`abstract-tests:` list)
+next to it holds tests that belong to no conformance class. As soon as one class has
+abstract tests (or the annex has a block), classes without any get one generated test per
+requirement.
+
+## Document layout
+
+### Preface, clause titles and unnumbered clauses
+
+```yaml
+preface:                          # before clause 1, numbered I, II, III…
+  - auto: abstract                # the 'abstract' (Markdown); no longer shown on the cover
+  - auto: keywords
+  - bblock: my.std.clauses.security
+clauses:
+  - bblock: my.std.requirements.core
+    title: Requirements Class “Core”      # overrides the block name
+  - bblock: my.std.annexes.bibliography
+    numbered: false                       # e.g. a closing Bibliography
+```
+
+In `terms.yaml` and `references.yaml`, `sort: false` keeps the order of the file. A reference
+can give its full `citation` (Markdown) instead of `doc-id`/`title`/`date`.
+
+### `layout: ogc`
+
+`layout: ogc` in a standard's entry renders it like a published OGC (Metanorma) document:
+
+- statements, requirements classes, conformance classes and abstract tests as ModSpec tables
+  (Identifier, Included in, A/B/C parts…), identifiers shown relative to `base-uri`
+  (`/req/core/x`);
+- statements numbered across the document per kind (Requirement 1…n, Permission 1…n);
+- headings in clause text numbered (6.1, 6.1.2…), with `sec-<number>` anchors, so that
+  `[Clause 6.2](#sec-6.2)` links work; terms rendered as subclauses;
+- annexes titled "Annex A (normative) …" (`normative: false` → informative);
+- an OGC-style cover (`external-id`, `doc-subtype`, `submission-date`, `approval-date`,
+  `pub-date`, version);
+- its styles in a separate `ogc-layout.css`, copied and linked only for this layout, so that
+  documents in the `classic` layout keep their exact output.
+
+`boilerplate.notices` (both layouts) replaces the default copyright/patent/license text with
+your own titled Markdown blocks:
+
+```yaml
+boilerplate:
+  copyright-year: 2019
+  notices:
+    - {title: Notice for Drafts, text: "This document is not an OGC Standard. …"}
+```
+
+The default layout (`classic`) is unchanged.
+
 ## Model blocks and ontology blocks as requirements classes
 
 A requirements class is not tied to `itemClass: requirements-class`. A block of any

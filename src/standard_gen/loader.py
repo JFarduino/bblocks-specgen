@@ -11,6 +11,7 @@ from .models import (
     StandardMetadata, ReqClass, Requirement, AppliesTo, Dependency,
     TestResource, ProseClause, TermsClause, ReferencesClause,
     Term, Reference, ConformanceClause, AnnexA, Example, Snippet,
+    AbstractTest, ClauseEntry, STATEMENT_KINDS,
 )
 from .resolver import Resolver
 
@@ -74,13 +75,21 @@ class Loader:
         req_classes = []  # collected for auto clauses
 
         clause_entries = std.get('clauses') or _clauses_from_index(local_by_id)
+        entries = ([(e, True) for e in std.get('preface') or []]
+                   + [(e, False) for e in clause_entries])
 
-        for entry in clause_entries:
-            if isinstance(entry, dict) and 'auto' in entry:
-                clauses.append({'auto': entry['auto']})
+        for entry, preface in entries:
+            opts = entry if isinstance(entry, dict) else {}
+            clause_opts = {
+                'title': opts.get('title'),
+                'numbered': opts.get('numbered', True),
+                'preface': preface,
+            }
+            if 'auto' in opts:
+                clauses.append(({'auto': opts['auto'], 'bblock': opts.get('bblock')}, clause_opts))
                 continue
 
-            bblock_id = entry['bblock'] if isinstance(entry, dict) else entry
+            bblock_id = opts['bblock'] if opts else entry
             bb = local_by_id.get(bblock_id)
             if not bb:
                 logger.warning("Clause bblock not found in register: %s", bblock_id)
@@ -100,25 +109,54 @@ class Loader:
             if content is None:
                 continue
 
-            clauses.append(content)
+            clauses.append((content, clause_opts))
             if isinstance(content, ReqClass):
                 req_classes.append(content)
 
         # Resolve auto entries now that req_classes is complete
         resolved = []
-        for entry in clauses:
+        for entry, clause_opts in clauses:
             if isinstance(entry, dict) and 'auto' in entry:
                 auto_type = entry['auto']
                 if auto_type == 'conformance':
-                    resolved.append(ConformanceClause(req_classes=req_classes))
+                    content = ConformanceClause(req_classes=req_classes)
                 elif auto_type == 'annex-a':
-                    resolved.append(self._build_annex_a(req_classes, resolver))
+                    annex_bb = None
+                    if entry.get('bblock'):
+                        annex_bb = local_by_id.get(entry['bblock'])
+                        if not annex_bb:
+                            logger.warning("Annex A bblock not found in register: %s", entry['bblock'])
+                        else:
+                            self.report.append({
+                                'bblock': annex_bb['itemIdentifier'],
+                                'itemClass': annex_bb.get('itemClass'),
+                                'role': 'annex-a',
+                                'reason': "used by {auto: annex-a}",
+                                'loaded': True,
+                            })
+                    content = self._build_annex_a(req_classes, resolver, annex_bb)
+                elif auto_type in ('abstract', 'keywords'):
+                    content = self._auto_prose(auto_type, metadata)
                 else:
                     logger.warning("Unknown auto clause type: %s", auto_type)
+                    continue
             else:
-                resolved.append(entry)
+                content = entry
+            resolved.append(ClauseEntry(content=content, **clause_opts))
 
         return metadata, resolved, resolver
+
+    @staticmethod
+    def _auto_prose(auto_type: str, metadata: StandardMetadata) -> ProseClause:
+        """Preface clauses generated from the standard's metadata."""
+        if auto_type == 'abstract':
+            return ProseClause(bblock_id=None, name='Abstract', description_md=metadata.abstract or '')
+        keywords = ', '.join(str(k) for k in metadata.keywords)
+        return ProseClause(
+            bblock_id=None, name='Keywords',
+            description_md=('The following are keywords to be used by search engines and '
+                            f'document catalogues.\n\n{keywords}\n'),
+        )
 
     # ------------------------------------------------------------------
     # Clause loading
@@ -214,7 +252,8 @@ class Loader:
             )
             for t in terms_data.get('terms', [])
         ]
-        terms.sort(key=lambda t: t.term.lower())
+        if terms_data.get('sort', True):
+            terms.sort(key=lambda t: t.term.lower())
 
         return TermsClause(
             bblock_id=bb['itemIdentifier'],
@@ -241,10 +280,11 @@ class Loader:
         def parse_refs(entries):
             return [
                 Reference(
-                    title=r['title'],
+                    title=r.get('title', ''),
                     doc_id=r.get('doc-id'),
                     uri=r.get('uri'),
                     date=r.get('date'),
+                    citation=r.get('citation'),
                 )
                 for r in (entries or [])
             ]
@@ -255,6 +295,7 @@ class Loader:
             normative=parse_refs(refs_data.get('normative', [])),
             informative=parse_refs(refs_data.get('informative', [])),
             preamble_md=preamble,
+            sort=refs_data.get('sort', True),
         )
 
     def _load_req_class(self, bb: dict, resolver: Resolver) -> Optional[ReqClass]:
@@ -307,12 +348,22 @@ class Loader:
                 dep_uri = resolver.conf_uri(self._class_id(dep_bb or {'itemIdentifier': dep['bblock']}, resolver))
                 depends_on.append(Dependency(uri=dep_uri, title=dep_name))
 
-        # Requirements
+        # Requirements (and recommendations / permissions)
         requirements = []
         std_target = req_data.get('standardization-target', bb.get('standardization-target', ''))
+        seen_ids = set()
         for req_entry in req_data.get('requirements', []):
             req_id = req_entry['id']
-            req_uri = req_entry.get('uri') or resolver.req_uri(req_id)
+            kind = req_entry.get('type', 'requirement')
+            if kind not in STATEMENT_KINDS:
+                raise ValueError(
+                    f"{bb['itemIdentifier']}: requirement {req_id!r} has unknown type {kind!r} "
+                    f"(expected one of {', '.join(STATEMENT_KINDS)})")
+            if (kind, req_id) in seen_ids:
+                raise ValueError(f"{bb['itemIdentifier']}: duplicate {kind} id {req_id!r}")
+            seen_ids.add((kind, req_id))
+            req_uri = req_entry.get('uri') or resolver.statement_uri(kind, req_id)
+            default_level = {'recommendation': 'SHOULD', 'permission': 'MAY'}.get(kind, 'SHALL')
 
             applies_to = None
             if at := req_entry.get('applies-to'):
@@ -320,18 +371,22 @@ class Loader:
                     bblock=at.get('bblock', ''),
                     json_path=at.get('json-path'),
                     terms=[str(t) for t in at.get('terms') or []],
+                    table=bool(at.get('table', True)),
                 )
 
             req = Requirement(
                 id=req_id,
                 uri=req_uri,
-                level=req_entry.get('level', 'SHALL'),
+                level=req_entry.get('level', default_level),
                 statement=req_entry.get('statement', ''),
                 condition=req_entry.get('condition'),
                 applies_to=applies_to,
                 tested_by=req_entry.get('tested-by', []),
                 note=req_entry.get('note'),
                 import_examples=int(req_entry.get('import-examples', 0)),
+                kind=kind,
+                parts=[str(p) for p in _as_list(req_entry.get('parts'))],
+                prerequisites=[str(p) for p in _as_list(req_entry.get('prerequisites'))],
             )
             # Resolve tested-by to actual TestResource objects
             req.test_resources = resolver.resolve_tested_by(req.tested_by, test_resources)
@@ -340,18 +395,57 @@ class Loader:
         self._attach_imported_examples(requirements, resolver)
         examples = self._load_examples(bb, resolver)
 
+        conf = req_data.get('conformance-class') or {}
+        abstract_tests = self._parse_abstract_tests(
+            req_data.get('abstract-tests', []), bb['itemIdentifier'], resolver, test_resources)
+
         return ReqClass(
             bblock_id=bb['itemIdentifier'],
             name=bb['name'],
             req_class_uri=req_class_uri,
-            conf_class_uri=conf_class_uri,
+            conf_class_uri=conf.get('uri') or conf_class_uri,
             standardization_target=std_target,
             description_md=description_md,
             requirements=requirements,
             depends_on=depends_on,
             test_resources=test_resources,
             examples=examples,
+            title=req_data.get('title') or bb['name'],
+            obligation=req_data.get('obligation', 'requirement'),
+            abstract_tests=abstract_tests,
+            conf_title=conf.get('title') or bb['name'],
+            conf_subject=conf.get('subject', ''),
         )
+
+    @staticmethod
+    def _parse_abstract_tests(entries, bblock_id, resolver: Resolver,
+                              test_resources: list[TestResource]) -> list[AbstractTest]:
+        tests = []
+        seen = set()
+        for entry in entries or []:
+            test_id = entry['id']
+            if test_id in seen:
+                raise ValueError(f"{bblock_id}: duplicate abstract test id {test_id!r}")
+            seen.add(test_id)
+            tested_by = _as_list(entry.get('tested-by'))
+            tests.append(AbstractTest(
+                id=test_id,
+                uri=entry.get('uri') or resolver.abstract_test_uri(test_id),
+                purpose=entry.get('purpose', ''),
+                method=entry.get('method', ''),
+                requirement_refs=[
+                    {'ref': str(r.get('ref', '')), 'text': r.get('text')} if isinstance(r, dict)
+                    else {'ref': str(r), 'text': None}
+                    for r in _as_list(entry.get('requirement'))
+                ],
+                prerequisites=[str(p) for p in _as_list(entry.get('prerequisites'))],
+                tested_by=tested_by,
+                # Unlike requirements, an abstract test lists no test resources
+                # unless it names them.
+                test_resources=resolver.resolve_tested_by(tested_by, test_resources) if tested_by else [],
+                bblock_id=bblock_id,
+            ))
+        return tests
 
     # ------------------------------------------------------------------
     # Examples loading
@@ -436,11 +530,62 @@ class Loader:
     # Annex A generation
     # ------------------------------------------------------------------
 
-    def _build_annex_a(self, req_classes: list[ReqClass], resolver: Resolver) -> AnnexA:
+    def _build_annex_a(self, req_classes: list[ReqClass], resolver: Resolver,
+                       annex_bb: Optional[dict] = None) -> AnnexA:
+        """
+        Explicit mode (any class defines abstract-tests, or the annex has a
+        block): the annex lists conformance classes and their abstract tests,
+        laid out by the annex block's description.md. Classes without
+        abstract-tests then get one generated test per requirement.
+        Otherwise: one entry per requirement (the original behaviour).
+        """
+        annex_tests: list[AbstractTest] = []
+        annex_md = ''
+        if annex_bb is not None:
+            try:
+                annex_md = resolver.fetch(self._source_file_url(annex_bb, 'description.md'))
+            except Exception as e:
+                logger.warning("Could not fetch description.md for %s: %s", annex_bb['itemIdentifier'], e)
+            url = self._source_file_url(annex_bb, 'abstract-tests.yaml')
+            data = None
+            local = resolver.local_path(url)
+            if local is None or local.is_file():
+                try:
+                    data = yaml.safe_load(resolver.fetch(url)) or {}
+                except requests.HTTPError:
+                    data = None
+            if data:
+                annex_tests = self._parse_abstract_tests(
+                    data.get('abstract-tests', []), annex_bb['itemIdentifier'], resolver, [])
+
+        if annex_bb is not None or any(rc.abstract_tests for rc in req_classes):
+            for rc in req_classes:
+                if not rc.abstract_tests:
+                    rc.abstract_tests = [
+                        AbstractTest(
+                            id=req.id,
+                            uri=resolver.ats_uri(req.uri),
+                            purpose=req.statement or '\n\n'.join(req.parts),
+                            requirement_refs=[{'ref': req.uri, 'text': None}],
+                            test_resources=req.test_resources,
+                            bblock_id=rc.bblock_id,
+                        )
+                        for req in rc.requirements if req.kind == 'requirement'
+                    ]
+            return AnnexA(
+                explicit=True,
+                req_classes=req_classes,
+                tests=annex_tests,
+                description_md=annex_md,
+                bblock_id=annex_bb['itemIdentifier'] if annex_bb else None,
+            )
+
         from .models import ATSEntry
         entries = []
         for rc in req_classes:
             for req in rc.requirements:
+                if req.kind != 'requirement':
+                    continue
                 entries.append(ATSEntry(
                     uri=resolver.ats_uri(req.uri),
                     req_uri=req.uri,
@@ -529,7 +674,14 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+_LAYOUTS = ('classic', 'ogc')
+
+
 def _parse_metadata(std: dict) -> StandardMetadata:
+    layout = std.get('layout', 'classic')
+    if layout not in _LAYOUTS:
+        raise ValueError(f"standard {std.get('id')!r}: unknown layout {layout!r} "
+                         f"(expected one of {', '.join(_LAYOUTS)})")
     return StandardMetadata(
         title=std['title'],
         doc_number=std.get('doc-number', ''),
@@ -545,4 +697,20 @@ def _parse_metadata(std: dict) -> StandardMetadata:
         keywords=std.get('keywords', []),
         abstract=std.get('abstract', ''),
         boilerplate=std.get('boilerplate', {}),
+        rec_uri_template=std.get('rec-uri-template', '{base-uri}/{status}rec/{id}'),
+        per_uri_template=std.get('per-uri-template', '{base-uri}/{status}per/{id}'),
+        ats_uri_template=std.get('ats-uri-template', '{base-uri}/{status}conf/{id}'),
+        layout=layout,
+        external_id=std.get('external-id', ''),
+        doc_subtype=std.get('doc-subtype', ''),
+        submission_date=std.get('submission-date'),
+        approval_date=std.get('approval-date'),
+        preface_autos=[e['auto'] for e in std.get('preface') or []
+                       if isinstance(e, dict) and 'auto' in e],
     )
+
+
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]

@@ -1,0 +1,278 @@
+{#- Building blocks of the document body, shared by base.html.j2 and by the
+    placement markers (rendered from Python through this module).
+    Each macro takes the SectionContext 'ctx' of the section being rendered. -#}
+
+{%- macro letter(n) -%}{{ 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[n - 1] if n <= 26 else n }}{%- endmacro -%}
+
+{% macro term_link(t) %}<a href="{{ t.uri }}"><code>{{ t.curie }}</code></a>{% endmacro %}
+
+{#- ---- Property / ontology tables of an applies-to ---- -#}
+{% macro applies_to_tables(applies_to) -%}
+      {% set prop_table = get_property_table(applies_to) if applies_to.table else None %}
+      {% if prop_table %}
+      <table class="property-table">
+        <thead><tr><th>Property</th><th>Type / Format</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          {% for p in prop_table.properties %}
+          <tr>
+            <td><code>{{ p.name }}</code></td>
+            <td>
+              {{ p.type }}{% if p.format %} / <code>{{ p.format }}</code>{% endif %}
+              {% if p.ref %}<br><a href="{{ p.ref }}" class="schema-ref">schema</a>{% endif %}
+            </td>
+            <td>{{ 'Yes' if p.required else 'No' }}</td>
+            <td>{{ p.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% elif applies_to.table %}
+      {% set onto = get_ontology_table(applies_to) %}
+      {% if onto %}
+      {# (no output) #}
+      {% if onto.classes %}
+      <table class="property-table ontology-table">
+        <thead><tr><th>Class</th><th>Subclass of</th><th>Definition</th></tr></thead>
+        <tbody>
+          {% for c in onto.classes %}
+          <tr>
+            <td>{{ term_link(c.term) }}<br>{{ c.term.label if c.term.label != c.term.curie }}</td>
+            <td>{% for t in c.parents %}{{ term_link(t) }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+            <td>{{ c.definition }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if onto.properties %}
+      <table class="property-table ontology-table">
+        <thead><tr><th>Property</th><th>Domain</th><th>Range</th><th>Definition</th></tr></thead>
+        <tbody>
+          {% for p in onto.properties %}
+          <tr>
+            <td>{{ term_link(p.term) }}<br>{{ p.term.label if p.term.label != p.term.curie }}</td>
+            <td>{% for t in p.domain %}{{ term_link(t) }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+            <td>{% for t in p.range %}{{ term_link(t) }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+            <td>{{ p.definition }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% endif %}
+      {% endif %}
+{%- endmacro %}
+
+{% macro applies_to_link(applies_to) -%}
+        {% set viewer_url = get_viewer_url(applies_to.bblock) %}
+        {% if viewer_url %}
+        <a href="{{ viewer_url }}">{{ applies_to.bblock }}</a>
+        {% else %}
+        {{ applies_to.bblock }}
+        {% endif %}
+        {% if applies_to.json_path %}
+        <code>{{ applies_to.json_path }}</code>
+        {% endif %}
+{%- endmacro %}
+
+{% macro statement_examples(req, rc) -%}
+      {% if req.examples %}
+      <div class="req-examples">
+        {% for example in req.examples %}
+        <div class="example">
+          <h5 class="example-title">{{ example.title or 'Example' }}</h5>
+          {% if example.content %}{{ render_markdown(example.content, example.source_bblock_id or rc.bblock_id) | safe }}{% endif %}
+          {% for snippet in example.snippets %}
+          <pre><code class="language-{{ snippet.language }}">{{ snippet.code | e }}</code></pre>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+{%- endmacro %}
+
+{#- ---- A requirement, recommendation or permission ---- -#}
+{% macro statement(req, rc, ctx) -%}
+{% if get_layout() == 'ogc' %}
+    <div class="modspec-block statement-{{ req.kind }}" id="{{ req.anchor }}">
+    <table class="modspec">
+      <thead><tr><th colspan="2">{{ req.label }}</th></tr></thead>
+      <tbody>
+        <tr><th>Identifier</th><td><code>{{ req.display_id }}</code></td></tr>
+        {% if req.kind == 'requirement' %}
+        <tr><th>Included in</th><td>{{ rc.label }}: <a href="#bb-{{ rc.bblock_id | slugify }}"><code>{{ rc.req_class_uri }}</code></a></td></tr>
+        {% endif %}
+        {% for p in req.prerequisites %}
+        <tr><th>Prerequisite</th><td>{{ render_markdown(p, rc.bblock_id) | safe }}</td></tr>
+        {% endfor %}
+        {% if req.condition %}
+        <tr><th>Condition</th><td>{{ render_markdown(req.condition, rc.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        {% if req.parts %}
+        {% if req.statement %}
+        <tr><th>Statement</th><td>{{ render_markdown(req.statement, rc.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        {% for part in req.parts %}
+        <tr><th>{{ letter(loop.index) }}</th><td>{{ render_markdown(part, rc.bblock_id) | safe }}</td></tr>
+        {% endfor %}
+        {% elif req.statement %}
+        <tr><th>A</th><td>{{ render_markdown(req.statement, rc.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        {% if req.applies_to %}
+        <tr><th>Applies to</th><td>{{ applies_to_link(req.applies_to) }}
+          {{ applies_to_tables(req.applies_to) }}</td></tr>
+        {% endif %}
+        {% if req.note %}
+        <tr><th>Note</th><td>{{ render_markdown(req.note, rc.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        {% if req.tested_by and req.test_resources %}
+        <tr><th>Test resources</th><td>
+          {% for tr in req.test_resources %}
+          <a class="test-resource {% if tr.require_fail %}require-fail{% endif %}" href="{{ tr.url }}">{{ tr.url | basename }}</a>
+          {% endfor %}
+        </td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    {{ statement_examples(req, rc) }}
+    </div>
+{% else -%}
+    <div class="requirement req-level-{{ req.level | replace(' ', '-') }}" id="{{ req.anchor }}">
+      <div class="req-header">
+        <span class="req-number">{{ req.label }}</span>
+        <span class="req-level">{{ req.level }}</span>
+        <span class="req-uri"><a href="{{ req.uri }}">{{ req.uri }}</a></span>
+      </div>
+      {%- for p in req.prerequisites %}
+      <div class="req-condition">Prerequisite: {{ p }}</div>
+      {%- endfor %}
+      {% if req.condition %}
+      <div class="req-condition">{{ req.condition }}</div>
+      {% endif %}
+      {%- if req.statement %}
+      <div class="req-statement">{{ render_markdown(req.statement, rc.bblock_id) | safe }}</div>
+      {%- endif %}
+      {%- if req.parts %}
+      <ol class="req-parts" type="A">
+        {% for part in req.parts %}
+        <li>{{ render_markdown(part, rc.bblock_id) | safe }}</li>
+        {% endfor %}
+      </ol>
+      {%- endif %}
+      {% if req.applies_to %}
+      <div class="req-applies-to">
+        Applies to:
+        {{ applies_to_link(req.applies_to) }}
+      </div>
+      {{ applies_to_tables(req.applies_to) }}
+      {% endif %}
+      {% if req.note %}
+      <div class="editor-note">{{ req.note }}</div>
+      {% endif %}
+      {{ statement_examples(req, rc) }}
+    </div>
+{%- endif %}
+{%- endmacro %}
+
+{#- ---- Requirements class table ---- -#}
+{% macro req_class_box(rc, ctx) -%}
+{% if get_layout() == 'ogc' %}
+    <div class="modspec-block req-class" id="bb-{{ rc.bblock_id | slugify }}">
+    <table class="modspec">
+      <thead><tr><th colspan="2">{{ rc.label }}: {{ rc.title }}</th></tr></thead>
+      <tbody>
+        <tr><th>Identifier</th><td><code>{{ rc.req_class_uri }}</code></td></tr>
+        <tr><th>Obligation</th><td>{{ rc.obligation }}</td></tr>
+        <tr><th>Target type</th><td>{{ rc.standardization_target }}</td></tr>
+        {% if rc.depends_on %}
+        <tr><th>Prerequisites</th><td>
+          {% for dep in rc.depends_on %}<a href="{{ dep.uri }}">{{ dep.title or dep.uri }}</a>{% if not loop.last %}<br>{% endif %}{% endfor %}
+        </td></tr>
+        {% endif %}
+        {% set reqs = rc.display_order | selectattr('kind', 'equalto', 'requirement') | list %}
+        {% if reqs %}
+        <tr><th>Normative statements</th><td>
+          {% for r in reqs %}{{ r.label }}: <a href="#{{ r.anchor }}"><code>{{ r.display_id }}</code></a>{% if not loop.last %}<br>{% endif %}{% endfor %}
+        </td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    </div>
+{% else -%}
+    <div class="req-class-box" id="bb-{{ rc.bblock_id | slugify }}">
+      <h4>Requirements Class</h4>
+      <table>
+        <tr><th>Requirements class</th><td><a href="{{ rc.req_class_uri }}">{{ rc.req_class_uri }}</a></td></tr>
+        <tr><th>Conformance class</th><td><a href="{{ rc.conf_class_uri }}">{{ rc.conf_class_uri }}</a></td></tr>
+        <tr><th>Standardization target</th><td>{{ rc.standardization_target }}</td></tr>
+        {% if rc.depends_on %}
+        <tr>
+          <th>Dependencies</th>
+          <td>
+            {% for dep in rc.depends_on %}
+            <a href="{{ dep.uri }}">{{ dep.title or dep.uri }}</a>{% if not loop.last %}<br>{% endif %}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+      </table>
+    </div>
+{%- endif %}
+{%- endmacro %}
+
+{#- ---- Conformance class table (explicit Annex A) ---- -#}
+{% macro conf_class(rc, ctx) -%}
+    <div class="modspec-block conf-class" id="{{ rc.conf_anchor }}">
+    <table class="modspec">
+      <thead><tr><th colspan="2">{{ rc.conf_label }}: {{ rc.conf_title }}</th></tr></thead>
+      <tbody>
+        <tr><th>Identifier</th><td><code>{{ rc.conf_class_uri }}</code></td></tr>
+        {% if rc.conf_subject %}
+        <tr><th>Subject</th><td>{{ render_markdown(rc.conf_subject, rc.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        <tr><th>Target Type</th><td>{{ rc.standardization_target }}</td></tr>
+        {% if rc.abstract_tests %}
+        <tr><th>Conformance tests</th><td>
+          {% for t in rc.abstract_tests %}{{ t.label }}: <a href="#{{ t.anchor }}"><code>{{ t.display_id }}</code></a>{% if not loop.last %}<br>{% endif %}{% endfor %}
+        </td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    </div>
+{%- endmacro %}
+
+{#- ---- Abstract test table (explicit Annex A) ---- -#}
+{% macro abstract_test(t, ctx) -%}
+    <div class="modspec-block abstract-test" id="{{ t.anchor }}">
+    <table class="modspec">
+      <thead><tr><th colspan="2">{{ t.label }}</th></tr></thead>
+      <tbody>
+        <tr><th>Identifier</th><td><code>{{ t.display_id }}</code></td></tr>
+        {% for r in t.requirements %}
+        <tr><th>Requirement</th><td>
+          {%- if r.label %}{{ r.label }}: {% endif -%}
+          {%- if r.anchor %}<a href="#{{ r.anchor }}">{% endif -%}
+          {%- if r.label %}<code>{{ r.text }}</code>{% else %}{{ r.text }}{% endif -%}
+          {%- if r.anchor %}</a>{% endif -%}
+        </td></tr>
+        {% endfor %}
+        {% for p in t.prerequisites %}
+        <tr><th>Prerequisite</th><td>{{ render_markdown(p, t.bblock_id) | safe }}</td></tr>
+        {% endfor %}
+        {% if t.purpose %}
+        <tr><th>Test purpose</th><td>{{ render_markdown(t.purpose, t.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        {% if t.method %}
+        <tr><th>Test method</th><td>{{ render_markdown(t.method, t.bblock_id) | safe }}</td></tr>
+        {% endif %}
+        {% if t.test_resources %}
+        <tr><th>Test resources</th><td>
+          {% for tr in t.test_resources %}
+          <a class="test-resource {% if tr.require_fail %}require-fail{% endif %}" href="{{ tr.url }}">{{ tr.url | basename }}</a>
+          {% endfor %}
+        </td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+    </div>
+{%- endmacro %}

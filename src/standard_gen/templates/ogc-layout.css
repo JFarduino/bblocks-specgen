@@ -1,0 +1,70 @@
+/* ==== 'ogc' layout (layout: ogc in standards.yaml) ==== */
+
+/* Cover */
+.ogc-cover .doc-stage {
+  display: inline-block; background: #eb5a06; color: white; font-family: Arial, sans-serif;
+  font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.2rem 0.8rem;
+  border-radius: 3px; margin: 0 0 0.6rem;
+}
+.ogc-cover .doc-type { font-family: Arial, sans-serif; color: #555; margin: 0; }
+.ogc-cover .cover-editors { font-size: 1.05rem; margin: 0.8rem 0; }
+.ogc-cover .cover-editors .role { color: #555; font-style: italic; }
+.ogc-cover .cover-meta { font-size: 0.9rem; margin: 1rem 0; }
+.ogc-cover .cover-meta th { text-align: left; color: #555; font-weight: normal; padding: 0.15rem 1.5rem 0.15rem 0; vertical-align: top; }
+.ogc-cover .cover-meta td { padding: 0.15rem 0; word-break: break-all; }
+.ogc-cover .doc-abstract { font-style: normal; }
+
+/* Notices (boilerplate.notices) */
+.notices { margin-top: 2rem; }
+.notice { margin-top: 1.2rem; font-size: 0.92rem; }
+.notice-title { font-size: 1.05rem; border: none; margin: 0 0 0.3rem; }
+
+/* Table of contents levels */
+#toc li.toc-l4 { margin-left: 1.5rem; font-size: 0.95em; }
+
+/* ModSpec tables: statements, requirements and conformance classes, abstract tests */
+.modspec-block { margin: 1.4rem 0; }
+table.modspec {
+  width: 100%; border-collapse: collapse; font-size: 0.92rem;
+  border-top: 2px solid #003366; border-bottom: 2px solid #003366;
+}
+table.modspec thead th {
+  text-align: left; font-family: Arial, sans-serif; font-size: 0.95rem; color: #003366;
+  padding: 0.5rem 0.6rem; border-bottom: 2px solid #003366; background: #f0f4fa;
+}
+table.modspec tbody th {
+  text-align: left; vertical-align: top; font-weight: bold; white-space: nowrap;
+  width: 11rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ccd6e4;
+}
+table.modspec tbody td {
+  vertical-align: top; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ccd6e4; word-break: break-word;
+}
+table.modspec tbody td > p:first-child { margin-top: 0; }
+table.modspec tbody td > p:last-child { margin-bottom: 0; }
+table.modspec pre { font-size: 0.85em; }
+.statement-recommendation table.modspec { border-color: #e67e22; }
+.statement-recommendation table.modspec thead th { color: #8a4a0f; background: #fff6ec; border-bottom-color: #e67e22; }
+.statement-permission table.modspec { border-color: #27ae60; }
+.statement-permission table.modspec thead th { color: #1d6b3d; background: #effbf3; border-bottom-color: #27ae60; }
+.abstract-test table.modspec thead th, .conf-class table.modspec thead th { background: #f4f4f4; }
+.modspec .test-resource { font-family: monospace; font-size: 0.85rem; display: block; }
+.modspec .test-resource.require-fail { color: #c0392b; }
+.modspec .test-resource.require-fail::after { content: " (expected to fail)"; }
+
+/* Notes, admonitions and captions in Markdown text (raw HTML blocks) */
+div.note {
+  border-left: 3px solid #888; background: #f7f7f7; padding: 0.5rem 0.9rem; margin: 1rem 0; font-size: 0.95rem;
+}
+div.note > p { margin: 0.3rem 0; }
+div.admonition {
+  background: #fdebe0; border-top: 6px solid #eb5a06; padding: 0.6rem 1rem; margin: 1rem 0;
+}
+div.admonition > p:first-child { text-align: center; }
+dl.abbreviated-terms { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1.5rem; }
+dl.abbreviated-terms dt { font-weight: bold; }
+dl.abbreviated-terms dd { margin: 0; }
+.reference-entry.citation { display: block; }
+.reference-entry.citation p { margin: 0; }
+section.preface h2, section.informative h2 { border-bottom-style: dashed; }
+body.layout-ogc h5, body.layout-ogc h6 { color: #003366; font-family: "Arial", sans-serif; font-size: 1rem; margin-top: 1.5rem; }
+table.modspec tbody td > ol:first-child, table.modspec tbody td > ul:first-child { margin-top: 0; }
