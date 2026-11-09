@@ -22,6 +22,18 @@ STATEMENT_KINDS = {
 }
 
 
+# Options of the ModSpec tables ('modspec' in standards.yaml):
+#   statement-label  header of the row of a statement that has no parts
+#   singular-labels  "Prerequisite", "Normative statement", "Conformance test"
+#                    when there is only one
+#   obligation-row   show the "Obligation" row of requirements class tables
+MODSPEC_DEFAULTS = {
+    'statement-label': 'A',
+    'singular-labels': False,
+    'obligation-row': True,
+}
+
+
 @dataclass
 class TestResource:
     url: str
@@ -49,6 +61,11 @@ class Requirement:
     # after 'statement' (which then acts as an introduction), if any.
     parts: list[str] = field(default_factory=list)
     prerequisites: list[str] = field(default_factory=list)
+    # Further ModSpec rows (Markdown), shown when given: "Label",
+    # "Conditions" and "Description"
+    label_row: Optional[str] = None
+    conditions: Optional[str] = None
+    description: Optional[str] = None
     # Assigned by the Assembler
     label: str = ''          # "Requirement 3", "Permission 6/1"...
     display_id: str = ''     # identifier as shown (URI, or relative to base-uri)
@@ -149,8 +166,12 @@ class ReqClass:
     title: str = ''
     obligation: str = 'requirement'
     abstract_tests: list[AbstractTest] = field(default_factory=list)
+    # True when requirements.yaml lists its abstract tests, even none
+    # ('abstract-tests: []'): no tests are then generated for the class
+    tests_listed: bool = False
     conf_title: str = ''
     conf_subject: str = ''
+    conf_prerequisites: list[str] = field(default_factory=list)
     # Assigned by the Assembler
     label: str = ''               # "Requirements class 1"
     conf_label: str = ''          # "Conformance class A.1"
@@ -236,6 +257,8 @@ class ClauseEntry:
     title: Optional[str] = None      # overrides the block name as clause title
     numbered: bool = True
     preface: bool = False
+    # 0 for a clause, 1 for a subclause listed under a clause's 'subclauses', ...
+    depth: int = 0
 
 
 @dataclass
@@ -255,6 +278,14 @@ class Section:
     subsections: list['SubSection'] = field(default_factory=list)
     kind: str = 'clause'   # 'preface', 'clause' or 'annex'
     normative: bool = True
+    # A subclause (8.1) is a section of depth 1, following its parent clause
+    # (8) in StandardDocument.sections; it is listed under it in the contents.
+    depth: int = 0
+
+    @property
+    def level(self) -> int:
+        """HTML heading level of the section title."""
+        return 2 + self.depth
 
 
 @dataclass
@@ -285,6 +316,11 @@ class StandardMetadata:
     approval_date: Optional[str] = None
     # Preface entries make the cover skip the abstract/keywords they render
     preface_autos: list[str] = field(default_factory=list)
+    # ModSpec table options ('modspec' in standards.yaml), see MODSPEC_DEFAULTS
+    modspec: dict = field(default_factory=dict)
+
+    def modspec_option(self, name: str):
+        return self.modspec.get(name, MODSPEC_DEFAULTS[name])
 
     @property
     def ogc_layout(self) -> bool:

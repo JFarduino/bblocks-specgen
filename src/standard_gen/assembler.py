@@ -7,8 +7,10 @@ from .models import (
     StandardDocument, StandardMetadata, Section,
     ProseClause, TermsClause, ReferencesClause, ReqClass,
     ConformanceClause, AnnexA, ClauseEntry, AbstractTest, TestRequirementRef,
+    STATEMENT_KINDS,
 )
 from .resolver import Resolver, _slugify
+from .headings import top_heading_count
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +67,16 @@ class Assembler:
         annex_num = 0
         preface_num = 0
         in_annexes = False
+        # Sections open at each depth, each with the number of its last subclause
+        parents: list[list] = []
 
         for entry in self._clauses:
             content = entry.content
+            if entry.depth > 0:
+                self._append_subclause(doc, entry, parents)
+                continue
+            n_sections = len(doc.sections)
+
             if entry.preface:
                 preface_num += 1
                 number = _roman(preface_num) if entry.numbered else ''
@@ -78,9 +87,8 @@ class Assembler:
                     content=content, kind='preface',
                     normative=getattr(content, 'normative', True),
                 ))
-                continue
 
-            if isinstance(content, AnnexA):
+            elif isinstance(content, AnnexA):
                 in_annexes = True
                 letter = _ANNEX_LETTERS[annex_num]
                 annex_num += 1
@@ -92,9 +100,8 @@ class Assembler:
                     anchor=self._anchor('annex-a', letter, title),
                     content=content, kind='annex',
                 ))
-                continue
 
-            if not entry.numbered:
+            elif not entry.numbered:
                 title = entry.title or getattr(content, 'name', '')
                 doc.sections.append(Section(
                     number='', title=title,
@@ -102,9 +109,8 @@ class Assembler:
                     content=content, kind='annex' if in_annexes else 'clause',
                     normative=getattr(content, 'normative', True),
                 ))
-                continue
 
-            if isinstance(content, ConformanceClause):
+            elif isinstance(content, ConformanceClause):
                 clause_num += 1
                 number = str(clause_num)
                 title = entry.title or 'Conformance'
@@ -146,9 +152,37 @@ class Assembler:
             else:
                 logger.warning("Unknown clause type: %s", type(content))
 
+            parents = ([[doc.sections[-1], _top_heading_count(content)]]
+                       if len(doc.sections) > n_sections else [])
+
         self._label_statements(doc)
         self._label_abstract_tests(doc)
         return doc
+
+    def _append_subclause(self, doc: StandardDocument, entry: ClauseEntry, parents: list) -> None:
+        """
+        A block listed in a clause's 'subclauses': numbered after the
+        subclauses of the parent's own text (a parent "10" whose text has
+        "10.1 Overview" gets "10.2" for its first listed subclause).
+        """
+        content = entry.content
+        title = entry.title or getattr(content, 'name', '')
+        del parents[entry.depth:]
+        if len(parents) < entry.depth:
+            logger.warning("Subclause without a parent clause: %s", title)
+            return
+        parent = parents[-1]
+        parent[1] += 1
+        number = f'{parent[0].number}.{parent[1]}' if parent[0].number and entry.numbered else ''
+        section = Section(
+            number=number, title=title,
+            anchor=self._anchor(f'clause-{_slugify(number or title)}', number, title),
+            content=content, kind=parent[0].kind,
+            normative=getattr(content, 'normative', True),
+            depth=entry.depth,
+        )
+        doc.sections.append(section)
+        parents.append([section, _top_heading_count(content)])
 
     # ------------------------------------------------------------------
     # Statements
@@ -156,53 +190,97 @@ class Assembler:
 
     def _label_statements(self, doc: StandardDocument) -> None:
         """
-        Order each class's statements as they are displayed (placement
-        markers in description.md, the remaining ones at the
-        <!-- requirements --> marker), then label them: document-wide per
-        kind in the 'ogc' layout ("Requirement 12"), per clause otherwise
-        ("Requirement 5/3").
+        Order the statements as they are displayed, then label them:
+        document-wide per kind in the 'ogc' layout ("Requirement 12",
+        "Requirement A.1" in an annex), per clause otherwise ("Requirement 5/3").
+
+        A class shows its statements at the placement markers of its
+        description.md, the remaining ones at the <!-- requirements -->
+        marker. A marker in another section (a prose clause, the preface, the
+        Annex A block) places a statement of any class there instead.
         """
+        owners = statement_owners(doc)
+        for req, _ in owners.values():
+            req.display_id = self._resolver.display_id(req.uri)
+
+        # Statements placed outside their class, per section
+        elsewhere: dict[int, list] = {}
+        placed_elsewhere: set[int] = set()
+        for section in doc.sections:
+            if isinstance(section.content, ReqClass):
+                continue
+            shown = []
+            for kind, ident in placements(_placement_markdown(section.content)):
+                if kind not in STATEMENT_KINDS:
+                    continue
+                found = owners.get((kind, ident))
+                if found is None:
+                    logger.warning("%s: placement marker for unknown %s %r",
+                                   section.title, kind, ident)
+                elif id(found[0]) not in placed_elsewhere:
+                    placed_elsewhere.add(id(found[0]))
+                    shown.append(found[0])
+            if shown:
+                elsewhere[id(section)] = shown
+
         global_counts: dict[str, int] = {}
+        annex_counts: dict[tuple, int] = {}
+        sequence: list = []
         class_num = 0
         for section in doc.sections:
             rc = section.content
-            if not isinstance(rc, ReqClass):
-                continue
-            class_num += 1
-            rc.label = f'Requirements class {class_num}'
-            for req in rc.requirements:
-                req.display_id = self._resolver.display_id(req.uri)
-
-            by_key = {(r.kind, r.id): r for r in rc.requirements}
-            md = rc.description_md or ''
-            idx = md.find(_REQUIREMENTS_MARKER)
-            intro, outro = (md[:idx], md[idx:]) if idx >= 0 else (md, '')
-
-            def placed(text):
-                out = []
-                for kind, ident in placements(text):
-                    if kind in ('requirement', 'recommendation', 'permission'):
-                        req = by_key.get((kind, ident))
-                        if req is None:
-                            logger.warning("%s: placement marker for unknown %s %r",
-                                           rc.bblock_id, kind, ident)
-                        elif req not in out:
-                            out.append(req)
-                return out
-
-            first, last = placed(intro), placed(outro)
-            placed_set = {id(r) for r in first + last}
-            rc.unplaced = [r for r in rc.requirements if id(r) not in placed_set]
-            rc.display_order = first + rc.unplaced + last
+            if isinstance(rc, ReqClass):
+                class_num += 1
+                rc.label = f'Requirements class {class_num}'
+                shown = self._class_display_order(rc, placed_elsewhere)
+            else:
+                shown = elsewhere.get(id(section), [])
 
             local_counts: dict[str, int] = {}
-            for req in rc.display_order:
-                if self._metadata.ogc_layout:
-                    n = global_counts[req.kind] = global_counts.get(req.kind, 0) + 1
-                    req.label = f'{req.kind_label} {n}'
-                else:
+            for req in shown:
+                sequence.append(req)
+                if not self._metadata.ogc_layout:
                     n = local_counts[req.kind] = local_counts.get(req.kind, 0) + 1
                     req.label = f'{req.kind_label} {section.number}/{n}'
+                elif section.kind == 'annex' and section.number:
+                    letter = section.number.split('.')[0]
+                    n = annex_counts[letter, req.kind] = annex_counts.get((letter, req.kind), 0) + 1
+                    req.label = f'{req.kind_label} {letter}.{n}'
+                else:
+                    n = global_counts[req.kind] = global_counts.get(req.kind, 0) + 1
+                    req.label = f'{req.kind_label} {n}'
+
+        # Each class lists its statements in document order, wherever shown
+        position = {id(r): i for i, r in enumerate(sequence)}
+        for section in doc.sections:
+            rc = section.content
+            if isinstance(rc, ReqClass):
+                rc.display_order = sorted(rc.requirements, key=lambda r: position.get(id(r), len(position)))
+
+    @staticmethod
+    def _class_display_order(rc: ReqClass, placed_elsewhere: set) -> list:
+        """The statements a class shows itself, in display order; sets rc.unplaced."""
+        by_key = {(r.kind, r.id): r for r in rc.requirements}
+        md = rc.description_md or ''
+        idx = md.find(_REQUIREMENTS_MARKER)
+        intro, outro = (md[:idx], md[idx:]) if idx >= 0 else (md, '')
+
+        def placed(text):
+            out = []
+            for kind, ident in placements(text):
+                if kind in STATEMENT_KINDS:
+                    req = by_key.get((kind, ident))
+                    if req is None:
+                        logger.warning("%s: placement marker for unknown %s %r",
+                                       rc.bblock_id, kind, ident)
+                    elif req not in out and id(req) not in placed_elsewhere:
+                        out.append(req)
+            return out
+
+        first, last = placed(intro), placed(outro)
+        placed_set = {id(r) for r in first + last} | placed_elsewhere
+        rc.unplaced = [r for r in rc.requirements if id(r) not in placed_set]
+        return first + rc.unplaced + last
 
     # ------------------------------------------------------------------
     # Abstract tests
@@ -326,6 +404,36 @@ class Assembler:
             elif kind == 'conformance-class' and ident in classes:
                 seq.extend(annex.unplaced_tests.get(classes[ident].bblock_id, []))
         return seq
+
+
+def statement_owners(doc: StandardDocument) -> dict:
+    """(kind, id) -> (statement, its requirements class), for every class of doc."""
+    owners = {}
+    for section in doc.sections:
+        rc = section.content
+        if isinstance(rc, ReqClass):
+            for req in rc.requirements:
+                owners.setdefault((req.kind, req.id), (req, rc))
+    return owners
+
+
+def _placement_markdown(content) -> str:
+    """Markdown of a section other than a requirements class that can hold placement markers."""
+    if isinstance(content, (ProseClause, AnnexA)):
+        return content.description_md or ''
+    return ''
+
+
+def _top_heading_count(content) -> int:
+    """Subclauses of a section's own text (its shallowest headings)."""
+    if isinstance(content, (ProseClause, ReqClass, AnnexA)):
+        return top_heading_count(content.description_md)
+    if isinstance(content, ReferencesClause):
+        return top_heading_count(content.preamble_md)
+    if isinstance(content, TermsClause):
+        return int(bool(content.terms)) + int(bool(content.abbreviated_terms)) \
+            + top_heading_count(content.preamble_md)
+    return 0
 
 
 def _well_known_anchor(content) -> str | None:

@@ -131,7 +131,7 @@
 <nav id="toc">
   <h2>{% if ogc %}Contents{% else %}Table of Contents{% endif %}</h2>
   <ul>
-    {% for section in doc.sections %}
+    {% for section in doc.sections if section.depth == 0 %}
     <li>
       <a href="#{{ section.anchor }}">{{ section_title(section, true) }}</a>
       {% if section.subsections %}
@@ -155,14 +155,14 @@
   {# ---- Prose clause ---- #}
   {% if content_type == 'ProseClause' %}
   <section id="{{ section.anchor }}" {% if not content.normative %}class="informative"{% elif section.kind == 'preface' %}class="preface"{% endif %}>
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     {{ render_markdown(content.description_md, content.bblock_id, ctx) | safe }}
   </section>
 
   {# ---- Terms clause ---- #}
   {% elif content_type == 'TermsClause' %}
   <section id="{{ section.anchor }}">
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     {%- if ogc %}
     {{ render_markdown(terms_markdown(content), content.bblock_id, ctx) | safe }}
     {%- else %}
@@ -195,7 +195,7 @@
   {# ---- References clause ---- #}
   {% elif content_type == 'ReferencesClause' %}
   <section id="{{ section.anchor }}"{% if not content.normative and section.kind == 'annex' %} class="informative"{% endif %}>
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     {% if content.preamble_md %}{{ render_markdown(content.preamble_md, content.bblock_id, ctx) | safe }}{% endif %}
     {% for ref in (content.normative | sort(attribute='doc_id') if content.sort else content.normative) %}
     {%- if ref.citation %}
@@ -233,7 +233,7 @@
   {# ---- Conformance clause ---- #}
   {% elif content_type == 'ConformanceClause' %}
   <section id="{{ section.anchor }}">
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     <p>
       This standard defines the following requirements classes and their associated
       conformance classes. Conformance with this standard shall be checked using the
@@ -258,7 +258,7 @@
   {# ---- Requirements class ---- #}
   {% elif content_type == 'ReqClass' %}
   <section id="{{ section.anchor }}" class="requirements-class">
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     {#- Rendered first: it places the class table and the statements that have a marker in it #}
     {%- set intro = render_markdown(content.description_md | split_intro, content.bblock_id, ctx) %}
 
@@ -272,7 +272,7 @@
 
     {# Requirements heading — resets visual scope after any intro subheadings #}
     {% if content.unplaced %}
-    {{ ctx.heading(3, 'Requirements', 'req-' ~ section.anchor ~ '-requirements') | safe }}
+    {{ ctx.heading(ctx.level + 1, 'Requirements', 'req-' ~ section.anchor ~ '-requirements') | safe }}
     {% endif %}
 
     {# Statements not placed by a marker #}
@@ -303,7 +303,7 @@
   {# ---- Annex A, explicit abstract tests ---- #}
   {% elif content_type == 'AnnexA' and content.explicit %}
   <section id="{{ section.anchor }}" class="{% if ogc %}annex-section{% else %}annex{% endif %} normative">
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     {{ render_markdown(content.description_md, content.bblock_id, ctx) | safe }}
     {% for rc in content.unplaced_classes %}
     {{ m.conf_class(rc, ctx) }}
@@ -319,7 +319,7 @@
   {# ---- Annex A ---- #}
   {% elif content_type == 'AnnexA' %}
   <section id="{{ section.anchor }}" class="{% if ogc %}annex-section{% else %}annex{% endif %} normative">
-    <h2>{{ section_title(section) }}</h2>
+    <h{{ section.level }}>{{ section_title(section) }}</h{{ section.level }}>
     {% for entry in content.entries %}
     <div class="ats-entry" id="ats-{{ entry.req_id_slug }}">
       <div class="ats-header">{{ entry.uri }}</div>

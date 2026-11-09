@@ -633,9 +633,122 @@ class OgcLayoutTest(_TmpDirCase):
         self.assertIn('class="req-class-box"', html)
         self.assertIn('Abstract test A.1', html)
 
+    def test_subclauses_statements_elsewhere_and_modspec_options(self):
+        files = {
+            'test.s.group/description.md': """
+                # Overview
+
+                Group text.
+
+                ```yaml
+                # not a heading
+                a: 1
+                ```
+                """,
+            'test.s.core/requirements.yaml': """
+                class-id: core
+                conformance-class:
+                  title: Core
+                  prerequisites: ["[Other class](#conf-other)"]
+                requirements:
+                  - {id: core/a, statement: The server SHALL do A.}
+                  - id: core/c
+                    label: /label/c
+                    conditions: The server is busy.
+                    description: Some description.
+                    parts: [It SHALL wait.]
+                  - {id: core/annexed, statement: The server SHALL be testable.}
+                  - {id: core/pre, type: recommendation, statement: The server SHOULD be safe.}
+                abstract-tests: []
+                """,
+            'test.s.core/description.md': """
+                # Doing
+
+                <!-- requirements-class -->
+
+                <!-- requirement: core/a -->
+
+                <!-- requirement: core/c -->
+                """,
+            'test.s.other/requirements.yaml': """
+                class-id: other
+                depends-on:
+                  - {uri: "#bb-test-s-core", title: /req/core}
+                requirements:
+                  - {id: other/x, statement: The server SHALL do X.}
+                abstract-tests: []
+                """,
+            'test.s.sec/description.md': """
+                # Part one
+
+                <!-- recommendation: core/pre -->
+                """,
+            'test.s.ats/description.md': """
+                # Introduction
+
+                <!-- requirement: core/annexed -->
+
+                # Conformance Class Core
+
+                <!-- conformance-class: test.s.core -->
+                """,
+        }
+        blocks = {'test.s.group': {'itemClass': 'clause'}, 'test.s.core': {'itemClass': 'requirements-class'},
+                  'test.s.other': {'itemClass': 'requirements-class'}, 'test.s.sec': {'itemClass': 'clause'},
+                  'test.s.ats': {'itemClass': 'clause'}}
+        std = {
+            'layout': 'ogc',
+            'modspec': {'statement-label': 'Statement', 'singular-labels': True, 'obligation-row': False},
+            'preface': [{'bblock': 'test.s.sec'}],
+            'clauses': [
+                {'bblock': 'test.s.group', 'title': 'Group', 'subclauses': [
+                    {'bblock': 'test.s.core', 'title': 'Class Core'},
+                    {'bblock': 'test.s.other', 'title': 'Class Other'}]},
+                {'auto': 'annex-a', 'bblock': 'test.s.ats'},
+            ],
+        }
+        html = self._generate(files, std, blocks)
+        toc = html.split('<nav id="toc">')[1].split('</nav>')[0]
+        # subclauses are numbered after the parent's own subclauses, one level deeper
+        self.assertIn('<h2>1. Group</h2>', html)
+        self.assertIn('<h3 id="sec-1.1">1.1. Overview</h3>', html)
+        self.assertIn('<h3>1.2. Class Core</h3>', html)
+        self.assertIn('<h4 id="sec-1.2.1">1.2.1. Doing</h4>', html)
+        self.assertIn('<h3>1.3. Class Other</h3>', html)
+        self.assertIn('<h4 id="sec-1.3.1">1.3.1. Requirements</h4>', html)
+        self.assertIn('<li class="toc-l3"><a href="#sec-1.2">1.2. Class Core</a></li>', toc)
+        self.assertEqual(toc.count('href="#sec-1.2"'), 1)
+        # a '#' line in a code block is not a heading
+        self.assertNotIn('not a heading</h', html)
+        self.assertNotIn('not a heading', toc)
+        # preface subclauses are lettered
+        self.assertIn('<h3 id="sec-I.A">I.A. Part one</h3>', html)
+        # statements placed in the preface and in Annex A, numbered where shown
+        self.assertLess(html.index('<th colspan="2">Recommendation 1</th>'), html.index('<h3>1.2. Class Core'))
+        self.assertIn('<th colspan="2">Requirement 1</th></tr></thead>\n      <tbody>\n        '
+                      '<tr><th>Identifier</th><td><code>/req/core/a</code>', html)
+        self.assertIn('<code>/req/other/x</code>', html.split('Requirement 3</th>')[1][:200])
+        self.assertIn('<code>/req/core/annexed</code>', html.split('Requirement A.1</th>')[1][:200])
+        self.assertLess(html.index('Annex A (normative)'), html.index('Requirement A.1</th>'))
+        # ModSpec options and rows
+        self.assertIn('<tr><th>Statement</th><td><p>The server SHALL do A.</p>', html)
+        self.assertIn('<tr><th>Label</th><td><p>/label/c</p>\n</td></tr>', html)
+        self.assertIn('<tr><th>Conditions</th><td><p>The server is busy.</p>\n</td></tr>', html)
+        self.assertIn('<tr><th>Description</th><td><p>Some description.</p>\n</td></tr>', html)
+        self.assertNotIn('Obligation', html)
+        self.assertIn('<th>Normative statements</th>', html)
+        self.assertIn('<th>Normative statement</th>', html)
+        self.assertIn('<tr><th>Prerequisite</th><td>\n          <a href="#bb-test-s-core">/req/core</a>', html)
+        self.assertIn('<tr><th>Prerequisite</th><td>\n          <p><a href="#conf-other">Other class</a></p>', html)
+        # 'abstract-tests: []': no tests generated for the class
+        self.assertNotIn('Abstract test', html)
+        self.assertIn('Conformance class A.1: Core', html)
+
     def test_unknown_layout_and_statement_type(self):
         with self.assertRaises(ValueError):
             self._generate(self.FILES, {**self._std('ogc'), 'layout': 'fancy'}, self.BLOCKS)
+        with self.assertRaises(ValueError):
+            self._generate(self.FILES, {**self._std('ogc'), 'modspec': {'colour': 'red'}}, self.BLOCKS)
         files = dict(self.FILES)
         files['test.s.core/requirements.yaml'] = 'requirements:\n  - {id: x, type: wish, statement: y}\n'
         with self.assertRaises(ValueError):

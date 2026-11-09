@@ -32,6 +32,8 @@ with requirements, conformance class table, and an abstract test suite annex.
 - [x] Explicit abstract tests and conformance classes (`abstract-tests:`), with an Annex A laid out by its own block
 - [x] Preface clauses (I, II…), clause title overrides, unnumbered clauses, custom boilerplate notices
 - [x] `layout: ogc` — ModSpec tables, document-wide statement numbering, numbered subclauses, OGC-style cover
+- [x] Subclauses (`subclauses:` in `standards.yaml`), e.g. requirements classes grouped under a clause
+- [x] Statements placed in any clause (preface, prose, Annex A, numbered "A.1" there), `modspec` table options, Label/Conditions/Description rows
 
 ## Pending
 

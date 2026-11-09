@@ -274,6 +274,9 @@ requirements:
     parts: [A server MAY …, Parts SHOULD …]
 ```
 
+A statement can also carry the ModSpec rows `label`, `conditions` and `description` (Markdown),
+shown as "Label", "Conditions" and "Description" before its parts.
+
 `level` defaults to SHALL, SHOULD and MAY respectively. URIs come from `rec-uri-template` and
 `per-uri-template` (defaults `{base-uri}/{status}rec/{id}` and `{base-uri}/{status}per/{id}`).
 `applies-to: {bblock: …, table: false}` links the block without adding its property table (e.g.
@@ -298,6 +301,11 @@ By default the class table comes first and all statements follow the intro text,
 Statements without a marker still go under the "Requirements" heading (which is omitted when
 every statement is placed). Statements are numbered in display order.
 
+A statement marker can also be put in another clause: a prose clause, a preface clause or the
+Annex A block (for example a recommendation of the "Job list" class shown in the security
+considerations). The statement is then shown there instead, and numbered there: in Annex A it
+gets an annex number ("Requirement A.1"). Its class table still lists it.
+
 ### Explicit abstract tests
 
 Instead of one generated Annex A entry per requirement, a class can list its abstract tests:
@@ -316,6 +324,9 @@ abstract-tests:
   - id: dru/other
     requirement: {ref: deploy-replace-undeploy/x, text: /req/shown/as/written}
 ```
+
+`conformance-class` can also give `prerequisites` (Markdown, one per entry). `abstract-tests: []`
+says that the class has no abstract tests: none are then generated for it.
 
 A requirement reference that resolves is linked (and shown as "Requirement N: /req/…" in the
 `ogc` layout unless `text` is given); one that does not is shown as written, with a warning.
@@ -342,6 +353,19 @@ clauses:
     numbered: false                       # e.g. a closing Bibliography
 ```
 
+A clause can list `subclauses`, rendered as its subclauses after its own text: a group clause
+"10" whose `description.md` has an "Overview" heading (10.1) gets 10.2, 10.3… for the listed
+blocks, typically requirements classes:
+
+```yaml
+clauses:
+  - bblock: my.std.clauses.encodings       # its description.md: "# Overview" -> 10.1
+    subclauses:
+      - bblock: my.std.requirements.json   # 10.2
+        title: Requirements Class “JSON”
+      - bblock: my.std.requirements.html   # 10.3
+```
+
 In `terms.yaml` and `references.yaml`, `sort: false` keeps the order of the file. A reference
 can give its full `citation` (Markdown) instead of `doc-id`/`title`/`date`, and an `anchor` (the
 HTML id of the entry) so that the text can link to it: `[OGC 18-062r2](#OAProc-1)`.
@@ -355,13 +379,24 @@ HTML id of the entry) so that the text can link to it: `[OGC 18-062r2](#OAProc-1
   (`/req/core/x`);
 - statements numbered across the document per kind (Requirement 1…n, Permission 1…n);
 - headings in clause text numbered (6.1, 6.1.2…), with `sec-<number>` anchors, so that
-  `[Clause 6.2](#sec-6.2)` links work; terms rendered as subclauses;
+  `[Clause 6.2](#sec-6.2)` links work, preface headings lettered (IV.A); terms rendered as
+  subclauses; a `#` line inside a fenced code block is not a heading;
 - a table of contents listing subclauses down to 6.1.2.3, without the terms;
 - annexes titled "Annex A (normative) …" (`normative: false` → informative);
 - an OGC-style cover (`external-id`, `doc-subtype`, `submission-date`, `approval-date`,
   `pub-date`, version);
 - its styles in a separate `ogc-layout.css`, copied and linked only for this layout, so that
   documents in the `classic` layout keep their exact output.
+
+`modspec` adjusts the ModSpec tables to the document being reproduced:
+
+```yaml
+modspec:
+  statement-label: Statement   # header of a statement without parts (default: A)
+  singular-labels: true        # "Prerequisite", "Normative statement", "Conformance test"
+                               # when there is only one (default: false)
+  obligation-row: false        # no "Obligation" row in class tables (default: true)
+```
 
 `boilerplate.notices` (both layouts) replaces the default copyright/patent/license text with
 your own titled Markdown blocks:

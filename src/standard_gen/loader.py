@@ -11,7 +11,7 @@ from .models import (
     StandardMetadata, ReqClass, Requirement, AppliesTo, Dependency,
     TestResource, ProseClause, TermsClause, ReferencesClause,
     Term, Reference, ConformanceClause, AnnexA, Example, Snippet,
-    AbstractTest, ClauseEntry, STATEMENT_KINDS,
+    AbstractTest, ClauseEntry, STATEMENT_KINDS, MODSPEC_DEFAULTS,
 )
 from .resolver import Resolver
 
@@ -75,15 +75,16 @@ class Loader:
         req_classes = []  # collected for auto clauses
 
         clause_entries = std.get('clauses') or _clauses_from_index(local_by_id)
-        entries = ([(e, True) for e in std.get('preface') or []]
-                   + [(e, False) for e in clause_entries])
+        entries = (_flatten_entries(std.get('preface') or [], True)
+                   + _flatten_entries(clause_entries, False))
 
-        for entry, preface in entries:
+        for entry, preface, depth in entries:
             opts = entry if isinstance(entry, dict) else {}
             clause_opts = {
                 'title': opts.get('title'),
                 'numbered': opts.get('numbered', True),
                 'preface': preface,
+                'depth': depth,
             }
             if 'auto' in opts:
                 clauses.append(({'auto': opts['auto'], 'bblock': opts.get('bblock')}, clause_opts))
@@ -388,6 +389,9 @@ class Loader:
                 kind=kind,
                 parts=[str(p) for p in _as_list(req_entry.get('parts'))],
                 prerequisites=[str(p) for p in _as_list(req_entry.get('prerequisites'))],
+                label_row=req_entry.get('label'),
+                conditions=req_entry.get('conditions'),
+                description=req_entry.get('description'),
             )
             # Resolve tested-by to actual TestResource objects
             req.test_resources = resolver.resolve_tested_by(req.tested_by, test_resources)
@@ -414,8 +418,10 @@ class Loader:
             title=req_data.get('title') or bb['name'],
             obligation=req_data.get('obligation', 'requirement'),
             abstract_tests=abstract_tests,
+            tests_listed='abstract-tests' in req_data,
             conf_title=conf.get('title') or bb['name'],
             conf_subject=conf.get('subject', ''),
+            conf_prerequisites=[str(p) for p in _as_list(conf.get('prerequisites'))],
         )
 
     @staticmethod
@@ -561,7 +567,7 @@ class Loader:
 
         if annex_bb is not None or any(rc.abstract_tests for rc in req_classes):
             for rc in req_classes:
-                if not rc.abstract_tests:
+                if not rc.abstract_tests and not rc.tests_listed:
                     rc.abstract_tests = [
                         AbstractTest(
                             id=req.id,
@@ -649,6 +655,21 @@ class Loader:
         return bblocks
 
 
+def _flatten_entries(entries: list, preface: bool, depth: int = 0) -> list[tuple]:
+    """
+    (entry, preface, depth) for each clause entry, in document order: an
+    entry's 'subclauses' follow it, one level deeper.
+    """
+    out = []
+    for entry in entries:
+        out.append((entry, preface, depth))
+        if isinstance(entry, dict) and entry.get('subclauses'):
+            if 'auto' in entry:
+                raise ValueError(f"{{auto: {entry['auto']}}} cannot have subclauses")
+            out.extend(_flatten_entries(entry['subclauses'], preface, depth + 1))
+    return out
+
+
 def _clauses_from_index(local_by_id: dict) -> list:
     """
     Fallback clause ordering when no explicit 'clauses' list is in standards.yaml.
@@ -683,6 +704,10 @@ def _parse_metadata(std: dict) -> StandardMetadata:
     if layout not in _LAYOUTS:
         raise ValueError(f"standard {std.get('id')!r}: unknown layout {layout!r} "
                          f"(expected one of {', '.join(_LAYOUTS)})")
+    modspec = std.get('modspec') or {}
+    if not isinstance(modspec, dict) or set(modspec) - set(MODSPEC_DEFAULTS):
+        raise ValueError(f"standard {std.get('id')!r}: 'modspec' takes only "
+                         f"{', '.join(MODSPEC_DEFAULTS)}")
     return StandardMetadata(
         title=std['title'],
         doc_number=std.get('doc-number', ''),
@@ -708,6 +733,7 @@ def _parse_metadata(std: dict) -> StandardMetadata:
         approval_date=std.get('approval-date'),
         preface_autos=[e['auto'] for e in std.get('preface') or []
                        if isinstance(e, dict) and 'auto' in e],
+        modspec=dict(modspec),
     )
 
 

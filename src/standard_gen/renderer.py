@@ -14,6 +14,7 @@ from .ontology import ontology_tables
 from .models import StandardDocument, SubSection
 from .resolver import Resolver, _slugify
 from .assembler import placements
+from .headings import heading_matches, normalize_headings
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,6 @@ _md = make_markdown()
 
 _REQUIREMENTS_MARKER = '<!-- requirements -->'
 
-# Matches ATX headings in markdown (# ... through ###### ...)
-_HEADING_LINE_RE = re.compile(r'^(#{1,6})[ \t]+(.+)', re.MULTILINE)
 # Matches rendered heading tags without existing id attribute
 _HEADING_TAG_RE = re.compile(r'<(h[1-6])>(.*?)</\1>', re.DOTALL)
 # Matches rendered heading tags once they have an id
@@ -41,25 +40,14 @@ def _render_markdown(text: str, env: Optional[dict] = None) -> str:
 
 def _normalize_headings(md_text: str, target_min: int = 3) -> str:
     """Shift all headings so the shallowest level maps to target_min."""
-    levels = [len(m.group(1)) for m in _HEADING_LINE_RE.finditer(md_text)]
-    if not levels:
-        return md_text
-    offset = target_min - min(levels)
-    if offset == 0:
-        return md_text
-
-    def adjust(m: re.Match) -> str:
-        new_level = max(1, min(6, len(m.group(1)) + offset))
-        return '#' * new_level + ' ' + m.group(2)
-
-    return _HEADING_LINE_RE.sub(adjust, md_text)
+    return normalize_headings(md_text, target_min)
 
 
 def _extract_headings(normalized_md: str) -> list[tuple[int, str, str]]:
     """Return [(level, title, slug), ...] from normalized markdown."""
     return [
         (len(m.group(1)), m.group(2).strip(), _slugify(m.group(2).strip()))
-        for m in _HEADING_LINE_RE.finditer(normalized_md)
+        for m in heading_matches(normalized_md)
     ]
 
 
@@ -86,20 +74,38 @@ def _split_outro(text: str) -> str:
 class Numbering:
     """
     Hierarchical numbers for the subclauses of one section ("6.1", "6.1.2"),
-    level 3 (the first heading level below the section h2) being the first.
+    the first heading level below the section title (h3 below an h2) being
+    the first. Preface subclauses are lettered: "IV.A", "IV.A.1".
     """
 
-    def __init__(self, prefix: str):
+    def __init__(self, prefix: str, base_level: int = 2, letters: bool = False):
         self.prefix = prefix
+        self._base_level = base_level
+        self._letters = letters
         self._counters: list[int] = []
 
     def next(self, level: int) -> str:
-        depth = max(1, level - 2)
+        depth = max(1, level - self._base_level)
         while len(self._counters) < depth:
             self._counters.append(0)
         del self._counters[depth:]
         self._counters[depth - 1] += 1
-        return '.'.join([self.prefix] + [str(c) for c in self._counters])
+        parts = [str(c) for c in self._counters]
+        if self._letters:
+            parts[0] = _letter(self._counters[0])
+        return '.'.join([self.prefix] + parts)
+
+
+def _letter(n: int) -> str:
+    return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[n - 1] if 1 <= n <= 26 else str(n)
+
+
+def _section_numbering(section) -> Optional[Numbering]:
+    """Subclause numbering of a section in the 'ogc' layout (None: unnumbered)."""
+    if not section.number:
+        return None
+    return Numbering(section.number, base_level=section.level,
+                     letters=section.kind == 'preface')
 
 
 class SectionContext:
@@ -111,15 +117,17 @@ class SectionContext:
 
     def __init__(self, renderer: 'Renderer', section):
         self.section = section
-        self.numbering = (
-            Numbering(section.number)
-            if renderer.ogc_layout and section.number and section.kind != 'preface'
-            else None)
+        self.numbering = _section_numbering(section) if renderer.ogc_layout else None
         self._renderer = renderer
         self.placed: set = set()
 
     def is_placed(self, obj) -> bool:
         return id(obj) in self.placed
+
+    @property
+    def level(self) -> int:
+        """Heading level of the section title (h2, or deeper for a subclause)."""
+        return self.section.level
 
     def heading(self, level: int, title: str, anchor: str) -> str:
         """An auto-generated heading (e.g. 'Requirements'), numbered like the others."""
@@ -230,11 +238,14 @@ class Renderer:
         self._env.globals['get_layout'] = lambda: 'ogc' if self.ogc_layout else 'classic'
         self._env.globals['has_placement'] = lambda text, kind: any(
             k == kind for k, _ in placements(text or ''))
+        self._env.globals['modspec'] = lambda name: self._metadata.modspec_option(name)
         self.ogc_layout = False
+        self._metadata = None
+        self._owners: dict = {}
 
     def _render_and_resolve(self, text: str, bblock_id: Optional[str] = None,
                             ctx: Optional[SectionContext] = None) -> str:
-        normalized = _normalize_headings(text)
+        normalized = _normalize_headings(text, ctx.level + 1 if ctx is not None else 3)
         html = _render_markdown(normalized, {'figures': self._figures, 'bblock': bblock_id})
         html = _inject_heading_ids(html)
         if ctx is not None:
@@ -262,6 +273,10 @@ class Renderer:
                     return ''
                 return str(m.statement(req, content, ctx))
             return None
+        if kind in ('requirement', 'recommendation', 'permission'):
+            # A statement placed outside its class (a prose clause, Annex A)
+            found = self._owners.get((kind, ident))
+            return str(m.statement(found[0], found[1], ctx)) if found else ''
         if isinstance(content, AnnexA) and content.explicit:
             if kind == 'conformance-class':
                 rc = next((c for c in content.req_classes
@@ -364,13 +379,14 @@ class Renderer:
         content = section.content
 
         def heads(md):
-            return [(lvl, title) for lvl, title, _ in _extract_headings(_normalize_headings(md))] if md else []
+            return [(lvl, title) for lvl, title, _ in
+                    _extract_headings(_normalize_headings(md, section.level + 1))] if md else []
 
         if isinstance(content, ReqClass):
             md = content.description_md or ''
             out = heads(_split_intro(md))
             if content.unplaced:
-                out.append((3, 'Requirements'))
+                out.append((section.level + 1, 'Requirements'))
             return out + heads(_split_outro(md))
         if isinstance(content, TermsClause):
             return heads(_terms_markdown(content))
@@ -385,8 +401,7 @@ class Renderer:
     def _populate_numbered_subsections(self, doc: StandardDocument) -> None:
         from .models import TermsClause
         for section in doc.sections:
-            numbering = (Numbering(section.number)
-                         if section.number and section.kind != 'preface' else None)
+            numbering = _section_numbering(section)
             # Listed down to 6.1.2.3, but not the terms themselves (4.1.1...)
             toc_depth = 3 if isinstance(section.content, TermsClause) else 5
             subs = []
@@ -395,13 +410,30 @@ class Renderer:
                     num = numbering.next(level)
                     if level <= toc_depth:
                         subs.append(SubSection(title=title, anchor=f'sec-{num}', level=level, number=num))
-                elif level == 3:
+                elif level == section.level + 1:
                     subs.append(SubSection(title=title, anchor=_slugify(title), level=level))
             section.subsections = subs
 
+    @staticmethod
+    def _nest_subclauses(doc: StandardDocument) -> None:
+        """List each subclause, and its own subclauses, under its top-level clause."""
+        root = None
+        for section in doc.sections:
+            if section.depth == 0:
+                root = section
+            elif root is not None:
+                root.subsections.append(SubSection(
+                    title=section.title, anchor=section.anchor,
+                    level=section.level, number=section.number))
+                root.subsections.extend(section.subsections)
+
     def render(self, doc: StandardDocument, build_dir: Path) -> None:
+        from .assembler import statement_owners
         self.ogc_layout = doc.metadata.ogc_layout
+        self._metadata = doc.metadata
+        self._owners = statement_owners(doc)
         self._populate_subsections(doc)
+        self._nest_subclauses(doc)
 
         build_dir.mkdir(parents=True, exist_ok=True)
 

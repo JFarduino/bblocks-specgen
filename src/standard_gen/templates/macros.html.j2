@@ -4,6 +4,9 @@
 
 {%- macro letter(n) -%}{{ 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[n - 1] if n <= 26 else n }}{%- endmacro -%}
 
+{#- "Prerequisites", or "Prerequisite" for a single item with modspec singular-labels -#}
+{%- macro plural(word, items) -%}{{ word if modspec('singular-labels') and items | length == 1 else word ~ 's' }}{%- endmacro -%}
+
 {% macro term_link(t) %}<a href="{{ t.uri }}"><code>{{ t.curie }}</code></a>{% endmacro %}
 
 {#- ---- Property / ontology tables of an applies-to ---- -#}
@@ -99,24 +102,36 @@
       <thead><tr><th colspan="2">{{ req.label }}</th></tr></thead>
       <tbody>
         <tr><th>Identifier</th><td><code>{{ req.display_id }}</code></td></tr>
+        {%- if req.label_row %}
+        <tr><th>Label</th><td>{{ render_markdown(req.label_row, rc.bblock_id) | safe }}</td></tr>
+        {%- endif %}
         {% if req.kind == 'requirement' %}
         <tr><th>Included in</th><td>{{ rc.label }}: <a href="#bb-{{ rc.bblock_id | slugify }}"><code>{{ rc.req_class_uri }}</code></a></td></tr>
         {% endif %}
         {% for p in req.prerequisites %}
         <tr><th>Prerequisite</th><td>{{ render_markdown(p, rc.bblock_id) | safe }}</td></tr>
         {% endfor %}
+        {%- if req.parts and req.statement and (req.conditions or req.description) %}
+        <tr><th>Statement</th><td>{{ render_markdown(req.statement, rc.bblock_id) | safe }}</td></tr>
+        {%- endif %}
         {% if req.condition %}
         <tr><th>Condition</th><td>{{ render_markdown(req.condition, rc.bblock_id) | safe }}</td></tr>
         {% endif %}
+        {%- if req.conditions %}
+        <tr><th>Conditions</th><td>{{ render_markdown(req.conditions, rc.bblock_id) | safe }}</td></tr>
+        {%- endif %}
+        {%- if req.description %}
+        <tr><th>Description</th><td>{{ render_markdown(req.description, rc.bblock_id) | safe }}</td></tr>
+        {%- endif %}
         {% if req.parts %}
-        {% if req.statement %}
+        {% if req.statement and not (req.conditions or req.description) %}
         <tr><th>Statement</th><td>{{ render_markdown(req.statement, rc.bblock_id) | safe }}</td></tr>
         {% endif %}
         {% for part in req.parts %}
         <tr><th>{{ letter(loop.index) }}</th><td>{{ render_markdown(part, rc.bblock_id) | safe }}</td></tr>
         {% endfor %}
         {% elif req.statement %}
-        <tr><th>A</th><td>{{ render_markdown(req.statement, rc.bblock_id) | safe }}</td></tr>
+        <tr><th>{{ modspec('statement-label') }}</th><td>{{ render_markdown(req.statement, rc.bblock_id) | safe }}</td></tr>
         {% endif %}
         {% if req.applies_to %}
         <tr><th>Applies to</th><td>{{ applies_to_link(req.applies_to) }}
@@ -182,16 +197,18 @@
       <thead><tr><th colspan="2">{{ rc.label }}: {{ rc.title }}</th></tr></thead>
       <tbody>
         <tr><th>Identifier</th><td><code>{{ rc.req_class_uri }}</code></td></tr>
+        {%- if modspec('obligation-row') %}
         <tr><th>Obligation</th><td>{{ rc.obligation }}</td></tr>
+        {%- endif %}
         <tr><th>Target type</th><td>{{ rc.standardization_target }}</td></tr>
         {% if rc.depends_on %}
-        <tr><th>Prerequisites</th><td>
+        <tr><th>{{ plural('Prerequisite', rc.depends_on) }}</th><td>
           {% for dep in rc.depends_on %}<a href="{{ dep.uri }}">{{ dep.title or dep.uri }}</a>{% if not loop.last %}<br>{% endif %}{% endfor %}
         </td></tr>
         {% endif %}
         {% set reqs = rc.display_order | selectattr('kind', 'equalto', 'requirement') | list %}
         {% if reqs %}
-        <tr><th>Normative statements</th><td>
+        <tr><th>{{ plural('Normative statement', reqs) }}</th><td>
           {% for r in reqs %}{{ r.label }}: <a href="#{{ r.anchor }}"><code>{{ r.display_id }}</code></a>{% if not loop.last %}<br>{% endif %}{% endfor %}
         </td></tr>
         {% endif %}
@@ -230,9 +247,14 @@
         {% if rc.conf_subject %}
         <tr><th>Subject</th><td>{{ render_markdown(rc.conf_subject, rc.bblock_id) | safe }}</td></tr>
         {% endif %}
+        {%- if rc.conf_prerequisites %}
+        <tr><th>{{ plural('Prerequisite', rc.conf_prerequisites) }}</th><td>
+          {% for p in rc.conf_prerequisites %}{{ render_markdown(p, rc.bblock_id) | safe }}{% endfor %}
+        </td></tr>
+        {%- endif %}
         <tr><th>Target Type</th><td>{{ rc.standardization_target }}</td></tr>
         {% if rc.abstract_tests %}
-        <tr><th>Conformance tests</th><td>
+        <tr><th>{{ plural('Conformance test', rc.abstract_tests) }}</th><td>
           {% for t in rc.abstract_tests %}{{ t.label }}: <a href="#{{ t.anchor }}"><code>{{ t.display_id }}</code></a>{% if not loop.last %}<br>{% endif %}{% endfor %}
         </td></tr>
         {% endif %}
