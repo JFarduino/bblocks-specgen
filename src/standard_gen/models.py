@@ -178,6 +178,8 @@ class Reference:
     date: Optional[str] = None
     # Full citation (Markdown); replaces the doc-id/title/date rendering
     citation: Optional[str] = None
+    # HTML id of the entry, so that the text can link to it
+    anchor: Optional[str] = None
 
 
 @dataclass

@@ -199,9 +199,9 @@
     {% if content.preamble_md %}{{ render_markdown(content.preamble_md, content.bblock_id, ctx) | safe }}{% endif %}
     {% for ref in (content.normative | sort(attribute='doc_id') if content.sort else content.normative) %}
     {%- if ref.citation %}
-    <div class="reference-entry citation">{{ render_markdown(ref.citation, content.bblock_id) | safe }}</div>
+    <div class="reference-entry citation"{% if ref.anchor %} id="{{ ref.anchor }}"{% endif %}>{{ render_markdown(ref.citation, content.bblock_id) | safe }}</div>
     {%- else %}
-    <div class="reference-entry">
+    <div class="reference-entry"{% if ref.anchor %} id="{{ ref.anchor }}"{% endif %}>
       <span class="ref-id">{% if ref.doc_id %}{{ ref.doc_id }}{% endif %}</span>
       <span class="ref-body">
         {% if ref.uri %}<a href="{{ ref.uri }}">{{ ref.title }}</a>{% else %}{{ ref.title }}{% endif %}
@@ -216,9 +216,9 @@
     {%- endif %}
     {% for ref in content.informative %}
     {%- if ref.citation %}
-    <div class="reference-entry citation">{{ render_markdown(ref.citation, content.bblock_id) | safe }}</div>
+    <div class="reference-entry citation"{% if ref.anchor %} id="{{ ref.anchor }}"{% endif %}>{{ render_markdown(ref.citation, content.bblock_id) | safe }}</div>
     {%- else %}
-    <div class="reference-entry">
+    <div class="reference-entry"{% if ref.anchor %} id="{{ ref.anchor }}"{% endif %}>
       <span class="ref-id">{% if ref.doc_id %}{{ ref.doc_id }}{% endif %}</span>
       <span class="ref-body">
         {% if ref.uri %}<a href="{{ ref.uri }}">{{ ref.title }}</a>{% else %}{{ ref.title }}{% endif %}

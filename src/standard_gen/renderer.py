@@ -383,14 +383,17 @@ class Renderer:
         return []
 
     def _populate_numbered_subsections(self, doc: StandardDocument) -> None:
+        from .models import TermsClause
         for section in doc.sections:
             numbering = (Numbering(section.number)
                          if section.number and section.kind != 'preface' else None)
+            # Listed down to 6.1.2.3, but not the terms themselves (4.1.1...)
+            toc_depth = 3 if isinstance(section.content, TermsClause) else 5
             subs = []
             for level, title in self._section_headings(section):
                 if numbering:
                     num = numbering.next(level)
-                    if level <= 4:
+                    if level <= toc_depth:
                         subs.append(SubSection(title=title, anchor=f'sec-{num}', level=level, number=num))
                 elif level == 3:
                     subs.append(SubSection(title=title, anchor=_slugify(title), level=level))

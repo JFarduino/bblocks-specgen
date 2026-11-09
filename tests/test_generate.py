@@ -571,6 +571,50 @@ class OgcLayoutTest(_TmpDirCase):
         self.assertIn('<link rel="stylesheet" href="ogc-layout.css">', html)
         self.assertTrue((self.root / 'out' / 's' / 'ogc-layout.css').is_file())
 
+    def test_toc_depth_and_reference_anchors(self):
+        files = {
+            'test.s.terms/terms.yaml': """
+                terms:
+                  - {term: Alpha, definition: The first.}
+                """,
+            'test.s.refs/references.yaml': """
+                normative:
+                  - {doc-id: OGC 1, anchor: ogc-one, citation: "Some *citation*."}
+                  - {doc-id: OGC 2, anchor: ogc-two, title: Plain entry}
+                  - {doc-id: OGC 3, title: No anchor}
+                """,
+            'test.s.text/description.md': """
+                # One
+
+                ## Two
+
+                ### Three
+
+                #### Four
+
+                See [OGC 1](#ogc-one).
+                """,
+        }
+        blocks = {'test.s.terms': {'itemClass': 'terms'}, 'test.s.refs': {'itemClass': 'references'},
+                  'test.s.text': {'itemClass': 'clause'}}
+        clauses = {'clauses': ['test.s.terms', 'test.s.refs', 'test.s.text']}
+        html = self._generate(files, {'layout': 'ogc', **clauses}, blocks)
+        toc = html.split('<nav id="toc">')[1].split('</nav>')[0]
+        # the table of contents stops at four numbers, and skips the terms
+        self.assertIn('<li class="toc-l5"><a href="#sec-3.1.1.1">3.1.1.1. Three</a></li>', toc)
+        self.assertNotIn('Four', toc)
+        self.assertIn('<h6 id="sec-3.1.1.1.1">3.1.1.1.1. Four</h6>', html)
+        self.assertIn('1.1. Terms and definitions', toc)
+        self.assertNotIn('Alpha', toc)
+        self.assertIn('<h4 id="sec-1.1.1">1.1.1. Alpha</h4>', html)
+        # references get their anchor in both layouts, and only if they have one
+        for layout in ('ogc', 'classic'):
+            html = self._generate(files, {'layout': layout, **clauses}, blocks)
+            self.assertIn('<div class="reference-entry citation" id="ogc-one">', html)
+            self.assertIn('<div class="reference-entry" id="ogc-two">', html)
+            self.assertIn('<a href="#ogc-one">OGC 1</a>', html)
+            self.assertEqual(html.count('<div class="reference-entry">'), 1)
+
     def test_classic_output_unaffected_by_ogc_layout(self):
         """Documents in the classic layout must keep their exact output."""
         html = self._generate(self.FILES, self._std('classic'), self.BLOCKS)

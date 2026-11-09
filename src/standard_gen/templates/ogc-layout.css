@@ -21,6 +21,7 @@
 
 /* Table of contents levels */
 #toc li.toc-l4 { margin-left: 1.5rem; font-size: 0.95em; }
+#toc li.toc-l5 { margin-left: 3rem; font-size: 0.9em; }
 
 /* ModSpec tables: statements, requirements and conformance classes, abstract tests */
 .modspec-block { margin: 1.4rem 0; }

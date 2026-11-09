@@ -343,7 +343,8 @@ clauses:
 ```
 
 In `terms.yaml` and `references.yaml`, `sort: false` keeps the order of the file. A reference
-can give its full `citation` (Markdown) instead of `doc-id`/`title`/`date`.
+can give its full `citation` (Markdown) instead of `doc-id`/`title`/`date`, and an `anchor` (the
+HTML id of the entry) so that the text can link to it: `[OGC 18-062r2](#OAProc-1)`.
 
 ### `layout: ogc`
 
@@ -355,6 +356,7 @@ can give its full `citation` (Markdown) instead of `doc-id`/`title`/`date`.
 - statements numbered across the document per kind (Requirement 1…n, Permission 1…n);
 - headings in clause text numbered (6.1, 6.1.2…), with `sec-<number>` anchors, so that
   `[Clause 6.2](#sec-6.2)` links work; terms rendered as subclauses;
+- a table of contents listing subclauses down to 6.1.2.3, without the terms;
 - annexes titled "Annex A (normative) …" (`normative: false` → informative);
 - an OGC-style cover (`external-id`, `doc-subtype`, `submission-date`, `approval-date`,
   `pub-date`, version);

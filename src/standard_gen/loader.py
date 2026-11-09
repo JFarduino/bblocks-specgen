@@ -285,6 +285,7 @@ class Loader:
                     uri=r.get('uri'),
                     date=r.get('date'),
                     citation=r.get('citation'),
+                    anchor=r.get('anchor'),
                 )
                 for r in (entries or [])
             ]
