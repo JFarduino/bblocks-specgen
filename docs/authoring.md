@@ -124,7 +124,7 @@ Plain Markdown. Notes:
   you would normally, starting with `#` or `##`.
 - **Links to other blocks:** `[text](bblocks://<identifier>)` links to the block's clause if it
   is in this document, or to its page in the viewer if it comes from an imported register.
-- **Figures:** see below.
+- **Figures** and **includes** (schemas or other files shown verbatim): see below.
 - The Markdown dialect is CommonMark plus tables.
 
 ### Figures
@@ -157,6 +157,52 @@ Details:
   `![Caption](assets/core.svg){#fig-core}` and refer to it with `[](#fig-core)`.
 - References may point forward. A link to an image that is not a figure produces a warning.
 - Prefer SVG over PNG when you have both.
+
+### Including schemas and other files
+
+A fenced code block with an `include=` option, and no content, is filled at build time with
+the content of a file, so that a schema published by a building block appears in the document
+without being copied into `description.md` (the equivalent of AsciiDoc's
+`include::openapi/schemas/link.yaml[]`):
+
+````markdown
+```yaml include=bblocks://ogc.api.common.part1.schemas.link
+```
+````
+
+The first word is the language (it sets the `language-…` class of the code block, as in any
+fence). `include=` takes:
+
+| Value | Includes |
+|---|---|
+| `bblocks://<identifier>` | the block's schema, as written by its authors (`sourceSchema` in the register) |
+| `bblocks://<identifier>` with `schema=annotated` | the block's annotated schema from the build (`schema` in the register: the JSON one if the language is `json`, the YAML one otherwise). It carries the semantic annotations (`x-jsonld-*`) and absolute `$ref`s |
+| an absolute URL | that URL (mapped to the local file when under the register's `baseURL`) |
+| a relative path | a file relative to the block's own source directory, as for images |
+
+The block can be local or come from an imported register. The included text is shown
+verbatim (escaped, never parsed as Markdown), so YAML `#` comments do not become headings.
+An include that cannot be resolved (unknown block, block without that schema, missing file,
+failed download) aborts the run. Content inside the fence is replaced, with a warning.
+
+**Link to the defining building block.** The code block is followed by a line
+"Building block: <identifier>", linked to the block's clause if it is in this document, or to
+its page in the viewer if it comes from an imported register. The block is:
+
+- for `include=bblocks://<identifier>`, that block;
+- for a URL, the block whose source or annotated schema is at that URL (`http` and `https`
+  alike), if any;
+- `bblock=<identifier>` sets it explicitly (for instance when including the official copy of a
+  schema that a block republishes), and `bblock=none` removes the line.
+
+````markdown
+```yaml include=https://schemas.opengis.net/ogcapi/common/part1/1.0/openapi/schemas/landingPage.yaml bblock=ogc.api.common.part1.schemas.landingPage
+```
+````
+
+A caption is ordinary Markdown next to the block. Pair the include with a requirement's
+`applies-to` (which renders the property table and links to the block) when the schema is
+normative for that requirement.
 
 ## Terms: `terms.yaml`
 

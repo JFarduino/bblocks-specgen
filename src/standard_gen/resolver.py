@@ -33,6 +33,7 @@ class Resolver:
         if self._base_url and not self._base_url.endswith('/'):
             self._base_url += '/'
         self._source_dir = source_dir
+        self._fetched: dict[str, str] = {}
 
         # Index all local bblocks by identifier
         self._local_bblocks: dict[str, dict] = {
@@ -102,15 +103,25 @@ class Resolver:
         return None
 
     def fetch(self, url: str) -> str:
-        """Fetch content from a URL, using local filesystem when possible."""
+        """
+        Fetch content from a URL, using local filesystem when possible.
+        Cached for the lifetime of the resolver (the document is rendered twice).
+        """
+        if url in self._fetched:
+            return self._fetched[url]
         local = self.local_path(url)
         if local is not None:
             logger.debug("Reading local file %s for URL %s", local, url)
-            return local.read_text(encoding='utf-8')
-        logger.debug("Fetching remote URL %s", url)
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
-        return resp.text
+            text = local.read_text(encoding='utf-8')
+        else:
+            logger.debug("Fetching remote URL %s", url)
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            if 'charset' not in resp.headers.get('content-type', ''):
+                resp.encoding = 'utf-8'   # JSON/YAML/Turtle: UTF-8 unless declared
+            text = resp.text
+        self._fetched[url] = text
+        return text
 
     # ------------------------------------------------------------------
     # bblocks:// link resolution
@@ -188,6 +199,19 @@ class Resolver:
             return bb.get('documentation', {}).get('bblocks-viewer', {}).get('url')
         return None
 
+    def find_bblock_by_schema_url(self, url: str) -> Optional[str]:
+        """
+        Identifier of the block whose source or annotated schema is at url
+        (http and https alike), local blocks first, or None.
+        """
+        key = _url_key(url)
+        for bblocks in (self._local_bblocks, self._imported_bblocks):
+            for identifier, bb in bblocks.items():
+                urls = [bb.get('sourceSchema'), *(bb.get('schema') or {}).values()]
+                if any(isinstance(u, str) and _url_key(u) == key for u in urls):
+                    return identifier
+        return None
+
     def get_bblock_schema(self, identifier: str) -> Optional[dict]:
         bb = self.get_bblock(identifier)
         if not bb:
@@ -216,6 +240,10 @@ class Resolver:
         except Exception as e:
             logger.warning("Could not fetch ontology for %s: %s", identifier, e)
             return None
+
+
+def _url_key(url: str) -> str:
+    return re.sub(r'^https?://', '', url)
 
 
 def _slugify(s: str) -> str:

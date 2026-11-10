@@ -97,6 +97,8 @@ section.annex h2::before { content: "Annex "; }
 
 .req-applies-to { font-size: 0.85rem; color: #555; margin-top: 0.4rem; }
 .req-applies-to a { color: #003366; }
+.include-source { font-size: 0.85rem; color: #555; margin: 0.4rem 0 1rem; }
+.include-source a { color: #003366; }
 
 .editor-note {
   border: 1px solid #e67e22;

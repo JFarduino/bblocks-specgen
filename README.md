@@ -34,6 +34,7 @@ with requirements, conformance class table, and an abstract test suite annex.
 - [x] `layout: ogc` — ModSpec tables, document-wide statement numbering, numbered subclauses, OGC-style cover
 - [x] Subclauses (`subclauses:` in `standards.yaml`), e.g. requirements classes grouped under a clause
 - [x] Statements placed in any clause (preface, prose, Annex A, numbered "A.1" there), `modspec` table options, Label/Conditions/Description rows
+- [x] File includes — a fenced code block with `include=bblocks://<id>` (or a URL / relative path) shows a block's schema or any file verbatim, fetched at build time instead of copied into `description.md`, and linked to the building block that defines it
 
 ## Pending
 
@@ -44,7 +45,7 @@ with requirements, conformance class table, and an abstract test suite annex.
 - [ ] PDF output via WeasyPrint
 
 See [docs/authoring.md](docs/authoring.md) for the full authoring guide: `standards.yaml`,
-`requirements.yaml`, `terms.yaml`, `references.yaml`, figures, and a worked example.
+`requirements.yaml`, `terms.yaml`, `references.yaml`, figures, includes, and a worked example.
 
 ## Usage as a bblocks-postprocess build plugin
 

@@ -158,13 +158,17 @@ def _terms_markdown(content) -> str:
     """
     The terms clause as Markdown, for the 'ogc' layout: the preamble, then
     one subclause per term under "Terms and definitions", then "Abbreviated
-    terms" (rendered, and numbered, like any other clause text).
+    terms" (rendered, and numbered, like any other clause text). A clause with
+    terms only has its terms as direct subclauses (4.1, 4.2…), with no
+    "Terms and definitions" heading.
     """
     out = [content.preamble_md.strip()] if content.preamble_md else []
     if content.terms:
-        out.append('# Terms and definitions')
+        grouped = bool(content.abbreviated_terms)
+        if grouped:
+            out.append('# Terms and definitions')
         for term in content.terms:
-            out.append(f'## {term.term}')
+            out.append(f'{"##" if grouped else "#"} {term.term}')
             out.append(term.definition.strip())
             if term.sources:
                 links = ', '.join(f"[{s.get('title', '')}]({s.get('uri', '#')})" for s in term.sources)
@@ -246,7 +250,8 @@ class Renderer:
     def _render_and_resolve(self, text: str, bblock_id: Optional[str] = None,
                             ctx: Optional[SectionContext] = None) -> str:
         normalized = _normalize_headings(text, ctx.level + 1 if ctx is not None else 3)
-        html = _render_markdown(normalized, {'figures': self._figures, 'bblock': bblock_id})
+        html = _render_markdown(normalized, {'figures': self._figures, 'bblock': bblock_id,
+                                             'resolver': self._resolver})
         html = _inject_heading_ids(html)
         if ctx is not None:
             html = ctx.number_headings(html)
@@ -402,8 +407,12 @@ class Renderer:
         from .models import TermsClause
         for section in doc.sections:
             numbering = _section_numbering(section)
-            # Listed down to 6.1.2.3, but not the terms themselves (4.1.1...)
-            toc_depth = 3 if isinstance(section.content, TermsClause) else 5
+            # Listed down to 6.1.2.3, but not the terms themselves (4.1.1..., or
+            # 4.1... in a clause of terms only)
+            if isinstance(section.content, TermsClause):
+                toc_depth = 3 if section.content.abbreviated_terms else 2
+            else:
+                toc_depth = 5
             subs = []
             for level, title in self._section_headings(section):
                 if numbering:

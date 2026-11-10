@@ -13,6 +13,7 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.attrs import attrs_plugin
 
+from .includes import includes_rule, render_fence
 from .resolver import Resolver, _slugify
 
 logger = logging.getLogger(__name__)
@@ -231,5 +232,7 @@ def _render_image(self, tokens, idx, options, env) -> str:
 def make_markdown() -> MarkdownIt:
     md = MarkdownIt().enable('table').use(attrs_plugin, after=('image',), spans=False)
     md.core.ruler.push('figures', _figures_rule)
+    md.core.ruler.push('includes', includes_rule)
     md.add_render_rule('image', _render_image)
+    md.add_render_rule('fence', render_fence)
     return md
