@@ -45,6 +45,13 @@ class Resolver:
             bb['itemIdentifier']: bb
             for bb in imported_registers
         }
+        # Local bblocks that the document renders with a #bb-<id> anchor (its requirements
+        # classes); None until the loader sets them, meaning every local bblock
+        self._anchored_bblocks: Optional[set[str]] = None
+
+    def set_anchored_bblocks(self, identifiers) -> None:
+        """Declare the bblocks that the document renders with a #bb-<id> anchor."""
+        self._anchored_bblocks = set(identifiers)
 
     # ------------------------------------------------------------------
     # URI derivation
@@ -128,14 +135,22 @@ class Resolver:
     # ------------------------------------------------------------------
 
     def resolve_bblocks_link(self, identifier: str) -> str:
-        """Resolve a bblocks:// identifier to an in-document anchor or external URL."""
-        if identifier in self._local_bblocks:
+        """
+        Resolve a bblocks:// identifier to an in-document anchor or external URL.
+
+        A block that the document renders (a requirements class) links to its anchor. Any other
+        block, local (e.g. a schema of the same register) or imported, links to its page in the
+        Building Blocks viewer; a local block without one (local builds deploy no viewer) falls
+        back to the anchor.
+        """
+        local = identifier in self._local_bblocks
+        if local and (self._anchored_bblocks is None or identifier in self._anchored_bblocks):
             return f'#bb-{_slugify(identifier)}'
-        bb = self._imported_bblocks.get(identifier)
-        if bb:
-            viewer = bb.get('documentation', {}).get('bblocks-viewer', {}).get('url')
-            if viewer:
-                return viewer
+        viewer = self.get_bblock_viewer_url(identifier)
+        if viewer:
+            return viewer
+        if local:
+            return f'#bb-{_slugify(identifier)}'
         logger.warning("Could not resolve bblocks:// identifier: %s", identifier)
         return f'bblocks://{identifier}'
 

@@ -783,7 +783,7 @@ class _FakeResponse:
 class IncludesTest(_TmpDirCase):
     BASE = 'http://example.com/src/'
 
-    def _generate(self, description, schema_files=None, extra_registers=()):
+    def _generate(self, description, schema_files=None, extra_registers=(), viewer=False):
         for rel, text in {
             'test.s.one/description.md': description,
             'test.s.one/examples/x.json': '{"a": 1}\n',
@@ -805,7 +805,13 @@ class IncludesTest(_TmpDirCase):
             {'itemIdentifier': 'test.s.noschema', 'name': 'No schema',
              'sourceFiles': f'{self.BASE}test.s.noschema/'},
         ]}
+        if viewer:  # as published from CI, where every block has a page in the viewer
+            for bb in register['bblocks']:
+                bb['documentation'] = {'bblocks-viewer': {
+                    'url': f"https://viewer.example.org/bblock/{bb['itemIdentifier']}"}}
         std = _std('s', prefix='test.s.')
+        std['req-uri-template'] = 'http://example.com/req/{id}'
+        std['conf-uri-template'] = 'http://example.com/conf/{id}'
         std['clauses'] = [{'bblock': 'test.s.one'}]
         out = generate(register, [std], source_dir=self.root, build_dir=self.root / 'out',
                        extra_registers=list(extra_registers))
@@ -821,6 +827,22 @@ class IncludesTest(_TmpDirCase):
         # followed by a link to the block that defines it (local: in-document anchor)
         self.assertIn('</code></pre>\n<p class="include-source">Building block: '
                       '<a href="#bb-test-s-model">test.s.model</a></p>', html)
+
+    def test_local_block_outside_the_document_links_to_the_viewer(self):
+        html = self._generate(
+            'See [the model](bblocks://test.s.model) and [this class](bblocks://test.s.one).\n\n'
+            '```yaml include=bblocks://test.s.model\n```\n',
+            schema_files={'test.s.one/requirements.yaml':
+                          'requirements:\n  - {id: r1, statement: do it}\n'},
+            viewer=True)
+        # test.s.model (a schema of the register) is not rendered: its page in the viewer
+        model = 'https://viewer.example.org/bblock/test.s.model'
+        self.assertIn(f'<a href="{model}">the model</a>', html)
+        self.assertIn(f'Building block: <a href="{model}">test.s.model</a>', html)
+        self.assertNotIn('href="#bb-test-s-model"', html)
+        # test.s.one is a requirements class of the document: its anchor
+        self.assertIn('id="bb-test-s-one"', html)
+        self.assertIn('<a href="#bb-test-s-one">this class</a>', html)
 
     def test_link_to_the_defining_block(self):
         html = self._generate(

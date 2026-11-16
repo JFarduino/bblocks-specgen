@@ -78,6 +78,17 @@ class Loader:
         entries = (_flatten_entries(std.get('preface') or [], True)
                    + _flatten_entries(clause_entries, False))
 
+        # Roles first: bblocks:// links (resolved while loading and rendering) point into the
+        # document only for the requirements classes it renders, wherever they are placed
+        roles = {}
+        for entry, _, _ in entries:
+            opts = entry if isinstance(entry, dict) else {}
+            bblock_id = opts.get('bblock') if opts else entry
+            if 'auto' not in opts and bblock_id in local_by_id:
+                roles[bblock_id] = self._detect_role(local_by_id[bblock_id], resolver)
+        resolver.set_anchored_bblocks(
+            i for i, (role, _) in roles.items() if role == 'requirements-class')
+
         for entry, preface, depth in entries:
             opts = entry if isinstance(entry, dict) else {}
             clause_opts = {
@@ -97,7 +108,7 @@ class Loader:
                 self.report.append({'bblock': bblock_id, 'role': None, 'reason': 'not found in register'})
                 continue
 
-            role, reason = self._detect_role(bb, resolver)
+            role, reason = roles[bblock_id]
             logger.info("%s: %s (%s)", bb['itemIdentifier'], role, reason)
             content = self._load_clause(bb, role, resolver)
             self.report.append({
